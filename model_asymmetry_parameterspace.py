@@ -580,25 +580,26 @@ def measure(args):
 		w20 = (width_20[1] - width_20[0]) * Vres
 		w50 = (width_50[1] - width_50[0]) * Vres
 
+
 		Sint_noiseless_rms, Afr_noiseless_rms = areal_asymmetry(spectrum, width_rms, Vres)
 		Sint_noiseless_2rms, Afr_noiseless_2rms = areal_asymmetry(spectrum, width_2rms, Vres)
 		Sint_noiseless_w20, Afr_noiseless_w20 = areal_asymmetry(spectrum, width_20, Vres)
 		Sint_noiseless_w50, Afr_noiseless_w50 = areal_asymmetry(spectrum, width_50, Vres)
 	
 		measurements = []
-		measurements_noiseless = [Sint_noisless_rms, -1, Afr_noiseless_rms,
+		measurements_noiseless = [Sint_noiseless_rms, -1, Afr_noiseless_rms,
 								Sint_noiseless_2rms, -1, Afr_noiseless_2rms,
 								Sint_noiseless_w20, -1, Afr_noiseless_w20,
 								-1, -1, -1,
-								Sint_noisless_w50, -1, Afr_noiseless_w50,
+								Sint_noiseless_w50, -1, Afr_noiseless_w50,
 								-1, -1, -1
 								]
 		measurements.append(measurements_noiseless)
 		for run in range(len(spectra[0]) - 2):
 			obs_spectrum = spectra[:, run + 2]
 
-			Sint_rms, Afr_rms = areal_asymmetry(obs_spectrum, wrms, Vres)
-			Sint_2rms, Afr_2rms = areal_asymmetry(obs_spectrum, w2rms, Vres)
+			Sint_rms, Afr_rms = areal_asymmetry(obs_spectrum, width_rms, Vres)
+			Sint_2rms, Afr_2rms = areal_asymmetry(obs_spectrum, width_2rms, Vres)
 			Sint_w20, Afr_w20 = areal_asymmetry(obs_spectrum, width_20, Vres)
 			Sint_w50, Afr_w50 = areal_asymmetry(obs_spectrum, width_50, Vres)
 			
@@ -726,17 +727,26 @@ def statistics(args):
 		Vres_range = Vres_range[Nch_sort]
 		file_list = np.array(file_list)[Nch_sort]
 
-		Sint = np.array([])
-		SN_w20 = np.array([])
-		SN_w50 = np.array([])
-		SN_w20_obs = np.array([])
-		SN_w50_obs = np.array([])
-		Afr_w20 = np.array([])
-		Afr_w50 = np.array([])
-		Afr_w20_obs = np.array([])
-		Afr_w50_obs = np.array([])
+		# Sint_rms = np.array([])
+		# SN_rms = np.array([])
+		# Afr_rms = np.array([])
+		# Sint_2rms = np.array([])
+		# SN_2rms = np.array([])
+		# Afr_2rms = np.array([])
+		# Sint_w20 = np.array([])
+		# SN_w20 = np.array([])
+		# Afr_w20 = np.array([])
+		# Sint_w20_obs = np.array([])
+		# SN_w20_obs = np.array([])
+		# Afr_w20_obs = np.array([])
+		# Sint_w50 = np.array([])
+		# SN_w50 = np.array([])
+		# Afr_w50 = np.array([])
+		# Sint_w50_obs = np.array([])
+		# SN_w50_obs = np.array([])
+		# Afr_w50_obs = np.array([])
 
-		names = ['w20', 'w50', 'w20_obs', 'w50_obs']
+		names = ['rms', '2rms', 'w20', 'w20_obs', 'w50', 'w50_obs']
 
 		column_names = ['Nch', 'Vres']
 		formats = {'Nch':'4.2f', 'Vres': '3.4f'}
@@ -745,14 +755,15 @@ def statistics(args):
 		percentile_vals = np.arange(5, 95 + dP, dP)
 		percentiles = np.zeros(len(percentile_vals) + 1)
 
-		names = ['w20', 'w50', 'w20_obs', 'w50_obs']
+		# names = ['w20', 'w50', 'w20_obs', 'w50_obs']
 		for name in names:
-			column_names.extend(['avg_SN_{n}'.format(n = name)])						
-			formats['avg_SN_{n}'.format(n = name)] = '4.2f'
+			column_names.extend([f'avg_SN_{name}'])						
+			formats[f'avg_SN_{name}'] = '4.2f'
 
 			for pp in range(len(percentile_vals)):
-				column_names.extend(['P{X}_{n}'.format(X = int(percentile_vals[pp]), n = name)])
-				formats['P{X}_{n}'.format(X = int(percentile_vals[pp]), n = name)] = '.5f'
+				value = int(percentile_vals[pp])
+				column_names.extend([f'P{value}_{name}'])
+				formats[f'P{value}_{name}'] = '.5f'
 		
 		Afr_statistics = np.zeros([len(file_list), 2 + len(percentiles) * len(names)])
 		Afr_statistics[:,0] = Nch_range
@@ -761,18 +772,33 @@ def statistics(args):
 		for ff in range(len(file_list)):
 			measurements = np.genfromtxt(file_list[ff])
 			measurements = measurements[1::,:]
-			Sint = measurements[:, 0]
-			SN_w20 = measurements[:, 1]
-			SN_w50 = measurements[:, 2]
-			SN_w20_obs = measurements[:, 3]
-			SN_w50_obs = measurements[:, 4]
-			Afr_w20 = measurements[:, 5]
-			Afr_w50 = measurements[:, 6]
-			Afr_w20_obs = measurements[:, 7]
-			Afr_w50_obs = measurements[:, 8]
+			Sint_rms = measurements[:, 0]
+			SN_rms = measurements[:, 1]
+			Afr_rms = measurements[:, 2]
 
-			SN = [SN_w20, SN_w50, SN_w20_obs, SN_w50_obs]
-			Afr = [Afr_w20, Afr_w50, Afr_w20_obs, Afr_w50_obs]
+			Sint_2rms = measurements[:, 3]
+			SN_2rms = measurements[:, 4]
+			Afr_2rms = measurements[:, 5]
+			
+			Sint_w20 = measurements[:, 6]
+			SN_w20 = measurements[:, 7]
+			Afr_w20 = measurements[:, 8]
+
+
+			Sint_w20_obs = measurements[:, 9]
+			SN_w20_obs = measurements[:, 10]
+			Afr_w20_obs = measurements[:, 11]
+
+			Sint_w50 = measurements[:, 12]
+			SN_w50 = measurements[:, 13]
+			Afr_w50 = measurements[:, 14]
+			
+			Sint_w50_obs = measurements[:, 15]
+			SN_w50_obs = measurements[:, 16]
+			Afr_w50_obs = measurements[:, 17]
+
+			SN = [SN_rms, SN_2rms, SN_w20, SN_w20_obs, SN_w50, SN_w50_obs]
+			Afr = [Afr_rms, Afr_2rms, Afr_w20, Afr_w20_obs, Afr_w50, Afr_w50_obs]
 
 			for ss in range(len(SN)):
 				percentiles[0] = np.mean(SN[ss])		
@@ -784,32 +810,55 @@ def statistics(args):
 								((ss + 1) * len(percentiles) + 2)] = percentiles
 
 		table = Table(rows = Afr_statistics, names = column_names)
-		stats_filename = '{dir}statistics.dat'.format(dir = args.dir) 
+		stats_filename = f'{args.dir}statistics.dat'
 		table.write(stats_filename, formats = formats, format = 'ascii', overwrite = True)
 
 	else:	
-		Sint = np.array([])
+		Sint_rms = np.array([])
+		SN_rms = np.array([])
+		Afr_rms = np.array([])
+		Sint_2rms = np.array([])
+		SN_2rms = np.array([])
+		Afr_2rms = np.array([])
+		Sint_w20 = np.array([])
 		SN_w20 = np.array([])
-		SN_w50 = np.array([])
-		SN_w20_obs = np.array([])
-		SN_w50_obs = np.array([])
 		Afr_w20 = np.array([])
-		Afr_w50 = np.array([])
+		Sint_w20_obs = np.array([])
+		SN_w20_obs = np.array([])
 		Afr_w20_obs = np.array([])
+		Sint_w50 = np.array([])
+		SN_w50 = np.array([])
+		Afr_w50 = np.array([])
+		Sint_w50_obs = np.array([])
+		SN_w50_obs = np.array([])
 		Afr_w50_obs = np.array([])
 
 		for file in file_list:
 			measurements = np.genfromtxt(file)
 			measurements = measurements[1::,:]
-			Sint = np.append(Sint, measurements[:, 0])
-			SN_w20 = np.append(SN_w20, measurements[:, 1])
-			SN_w50 = np.append(SN_w50, measurements[:, 2])
-			SN_w20_obs = np.append(SN_w20_obs, measurements[:, 3])
-			SN_w50_obs = np.append(SN_w50_obs, measurements[:, 4])
-			Afr_w20 = np.append(Afr_w20, measurements[:, 5])
-			Afr_w50 = np.append(Afr_w50, measurements[:, 6])
-			Afr_w20_obs = np.append(Afr_w20_obs, measurements[:, 7])
-			Afr_w50_obs = np.append(Afr_w50_obs, measurements[:, 8])
+			Sint_rms = np.append(Sint_rms,measurements[:, 0])
+			SN_rms = np.append(SN_rms,measurements[:, 1])
+			Afr_rms = np.append(Afr_rms,measurements[:, 2])
+
+			Sint_2rms = np.append(Sint_2rms,measurements[:, 3])
+			SN_2rms = np.append(SN_2rms,measurements[:, 4])
+			Afr_2rms = np.append(Afr_2rms,measurements[:, 5])
+			
+			Sint_w20 = np.append(Sint_w20,measurements[:, 6])
+			SN_w20 = np.append(SN_w20,measurements[:, 7])
+			Afr_w20 = np.append(Afr_w20,measurements[:, 8])
+
+			Sint_w20_obs = np.append(Sint_w20_obs,measurements[:, 9])
+			SN_w20_obs = np.append(SN_w20_obs,measurements[:, 10])
+			Afr_w20_obs = np.append(Afr_w20_obs,measurements[:, 11])
+
+			Sint_w50 = np.append(Sint_w50,measurements[:, 12])
+			SN_w50 = np.append(SN_w50,measurements[:, 13])
+			Afr_w50 = np.append(Afr_w50,measurements[:, 14])
+			
+			Sint_w50_obs = np.append(Sint_w50_obs,measurements[:, 15])
+			SN_w50_obs = np.append(SN_w50_obs,measurements[:, 16])
+			Afr_w50_obs = np.append(Afr_w50_obsmeasurements[:, 17])
 
 		SN_bins = np.arange(int(np.nanmax([5, np.nanmin(SN_w20)])), 
 				int(np.nanmax(SN_w20) * 0.1) * 10, 4)
@@ -821,9 +870,9 @@ def statistics(args):
 		percentile_vals = np.arange(5, 95 + dP, dP)
 		percentiles = np.zeros(len(percentile_vals) + 2)
 
-		names = ['w20', 'w50', 'w20_obs', 'w50_obs']
-		SN = [SN_w20, SN_w50, SN_w20_obs, SN_w50_obs]
-		Afr = [Afr_w20, Afr_w50, Afr_w20_obs, Afr_w50_obs]
+		names = ['rms', '2rms', 'w20', 'w20_obs', 'w50', 'w50_obs']
+		SN = [SN_rms, SN_2rms, SN_w20, SN_w20_obs, SN_w50, SN_w50_obs]
+		Afr = [Afr_rms, Afr_2rms, Afr_w20, Afr_w20_obs, Afr_w50, Afr_w50_obs]
 
 		Afr_statistics = np.zeros([len(SN_bins) - 1, 1 + len(percentiles) * len(SN)])
 		Afr_statistics[:,0] = SN_bins[0:-1]
@@ -835,14 +884,15 @@ def statistics(args):
 			SN_vals = SN[mm]
 			Afr_vals = Afr[mm]
 
-			column_names.extend(['avg_SN_{n}'.format(n = names[mm]),
-								'mode_Afr_{n}'.format(n = names[mm])])
-			formats['avg_SN_{n}'.format(n = names[mm])] = '4.2f'
-			formats['mode_Afr_{n}'.format(n = names[mm])] = '4.2f'
+			column_names.extend([f'avg_SN_{names[mm]}',
+								f'mode_Afr_{names[mm]}'])
+			formats[f'avg_SN_{names[mm]}'] = '4.2f'
+			formats[f'mode_Afr_{names[mm]}'] = '4.2f'
 
 			for pp in range(len(percentile_vals)):
-				column_names.extend(['P{X}_{n}'.format(X = int(percentile_vals[pp]), n = names[mm])])
-				formats['P{X}_{n}'.format(X = int(percentile_vals[pp]), n = names[mm])] = '.5f'
+				value = int(percentile_values[pp])
+				column_names.extend([f'P{value}_{names[mm]}'])
+				formats[f'P{value}_{names[mm]}'] = '.5f'
 
 			for ii in range(len(SN_bins) - 1):
 				SN_low = SN_bins[ii]
@@ -869,11 +919,11 @@ def statistics(args):
 										((mm + 1) * len(percentiles) + 1)] = percentiles
 
 		table = Table(rows = Afr_statistics, names = column_names)
-		stats_filename = '{dir}statistics.dat'.format(dir = args.dir) 
+		stats_filename = f'{args.dir}statistics.dat'
 		table.write(stats_filename, formats = formats, format = 'ascii', overwrite = True)
 		
-		density_filename = '{dir}densityplot.dat'.format(dir = args.dir)
-		np.savetxt(density_filename, Afr_densityplot)
+		# density_filename = f'{args.dir}densityplot.dat'
+		# np.savetxt(density_filename, Afr_densityplot)
 
 def plot_spectrum(args):
 	"""
