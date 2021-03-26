@@ -19,8 +19,8 @@ The University of Western Australia
 """
 import argparse
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
+# import matplotlib.pyplot as plt
+# import matplotlib.gridspec as gridspec
 import os
 import glob 
 
@@ -836,6 +836,7 @@ def statistics(args):
 		for file in file_list:
 			measurements = np.genfromtxt(file)
 			measurements = measurements[1::,:]
+
 			Sint_rms = np.append(Sint_rms,measurements[:, 0])
 			SN_rms = np.append(SN_rms,measurements[:, 1])
 			Afr_rms = np.append(Afr_rms,measurements[:, 2])
@@ -858,7 +859,7 @@ def statistics(args):
 			
 			Sint_w50_obs = np.append(Sint_w50_obs,measurements[:, 15])
 			SN_w50_obs = np.append(SN_w50_obs,measurements[:, 16])
-			Afr_w50_obs = np.append(Afr_w50_obsmeasurements[:, 17])
+			Afr_w50_obs = np.append(Afr_w50_obs,measurements[:, 17])
 
 		SN_bins = np.arange(int(np.nanmax([5, np.nanmin(SN_w20)])), 
 				int(np.nanmax(SN_w20) * 0.1) * 10, 4)
@@ -890,7 +891,7 @@ def statistics(args):
 			formats[f'mode_Afr_{names[mm]}'] = '4.2f'
 
 			for pp in range(len(percentile_vals)):
-				value = int(percentile_values[pp])
+				value = int(percentile_vals[pp])
 				column_names.extend([f'P{value}_{names[mm]}'])
 				formats[f'P{value}_{names[mm]}'] = '.5f'
 
@@ -1002,46 +1003,61 @@ def plot_spectrum(args):
 	PeakL_vel = vel_bins[Peaklocs_obs[0]]
 	PeakR_vel = vel_bins[Peaklocs_obs[1]]
 
-	fig = plt.figure(figsize = (10,10))
-	gs = gridspec.GridSpec(3, 1, hspace = 0)
-	spec_ax = fig.add_subplot(gs[0:2,0])
-	noise_ax = fig.add_subplot(gs[2,0], sharex = spec_ax)
+	if False:
+		fig = plt.figure(figsize = (10,10))
+		gs = gridspec.GridSpec(1, 1)
+		spec_ax = fig.add_subplot(gs[0,0])
 
-	spec_ax.tick_params(axis = 'y', which = 'both', direction = 'in', labelsize = 9)
-	spec_ax.tick_params(axis = 'x', which = 'both', direction = 'in', labelsize = 0.)
-	noise_ax.tick_params(axis = 'both',which = 'both',direction = 'in', labelsize = 9)
-	noise_ax.set_xlabel('Velocity [km/s]', fontsize = 10)
-	noise_ax.set_ylabel('Residual  [mJy]', fontsize = 10)
-	noise_ax.set_ylim([-4 * rms,4 * rms])
-	spec_ax.set_ylabel('Spectral Flux [mJy]', fontsize = 10)
-	spec_ax.set_title('{mc}  A = {A:.3f}  SN = {SN}  N = {N}'.format(
-			mc = model_code, A = Afr, SN = args.SN, N = args.num))
-
-	spec_ax.plot(vel_bins,spectrum, color = 'Red', zorder = 0, ls = '-', linewidth = 2)
-	spec_ax.plot(vel_bins,obs_spectrum, color = 'Black', zorder = -1, ls = '--')
-	noise_ax.plot(vel_bins,noise, color = 'Black', zorder = 1, ls = '--')
-	noise_ax.plot([vel_bins[0], vel_bins[-1]], [-1.e0 * rms, -1.e0 * rms],
-			color = 'Red', ls = '-', zorder = 0, linewidth = 2)
-	noise_ax.plot([vel_bins[0],vel_bins[-1]],[rms,rms], 
-			color = 'Red', ls = '-', zorder = 0, linewidth = 2)
-	spec_ax.plot([minvel,minvel], [np.min(obs_spectrum), np.max(obs_spectrum)],
-			ls = ':', linewidth = 3, color = 'Green', zorder = 0)
-	spec_ax.plot([maxvel,maxvel], [np.min(obs_spectrum), np.max(obs_spectrum)],
-			ls = ':', linewidth = 3, color = 'Green', zorder = 0)
-	spec_ax.plot([midvel,midvel], [np.min(obs_spectrum), np.max(obs_spectrum)],
-			ls = '--', linewidth = 3, color = 'Green', zorder = 0)
-
-	spec_ax.plot([PeakL_vel,PeakL_vel], [np.max(obs_spectrum) - rms, np.max(obs_spectrum)],
-			ls = '--', linewidth = 2, color = 'Blue', zorder = 0)
-	spec_ax.plot([PeakR_vel,PeakR_vel], [np.max(obs_spectrum) - rms, np.max(obs_spectrum)],
-			ls = '--', linewidth = 2, color = 'Blue', zorder = 0)
-
-	if args.save == True:
-		plotdir = '{dir}figures/{mc}_SN{SN}_N{N}_spectrum.png'.format(
-			dir = args.dir, mc = model_code, SN = args.SN, N = args.num)
-		fig.savefig(plotdir, dpi = 150)
-	else:	
+		spec_ax.tick_params(axis = 'both', which = 'both', direction = 'in', labelsize = 18)
+		spec_ax.set_ylabel('Spectral Flux [mJy]', fontsize = 20)
+		spec_ax.set_xlabel('Velocity [km/s]', fontsize = 20)
+		spec_ax.plot(vel_bins,obs_spectrum, color = 'Black', zorder = -1, ls = '-')
+		spec_ax.text(0.05,0.9,f'S/N = {args.SN}',fontsize=20,transform=spec_ax.transAxes)
+		spec_ax.text(0.05,0.85,f'A$_{{fr}}$ = {Afr:.2f}',fontsize=20,transform=spec_ax.transAxes)
+		plt.tight_layout()
 		plt.show()
+
+	if True:
+		fig = plt.figure(figsize = (10,10))
+		gs = gridspec.GridSpec(3, 1, hspace = 0)
+		spec_ax = fig.add_subplot(gs[0:2,0])
+		noise_ax = fig.add_subplot(gs[2,0], sharex = spec_ax)
+
+		spec_ax.tick_params(axis = 'y', which = 'both', direction = 'in', labelsize = 9)
+		spec_ax.tick_params(axis = 'x', which = 'both', direction = 'in', labelsize = 0.)
+		noise_ax.tick_params(axis = 'both',which = 'both',direction = 'in', labelsize = 9)
+		noise_ax.set_xlabel('Velocity [km/s]', fontsize = 10)
+		noise_ax.set_ylabel('Residual  [mJy]', fontsize = 10)
+		noise_ax.set_ylim([-4 * rms,4 * rms])
+		spec_ax.set_ylabel('Spectral Flux [mJy]', fontsize = 10)
+		spec_ax.set_title('{mc}  A = {A:.3f}  SN = {SN}  N = {N}'.format(
+				mc = model_code, A = Afr, SN = args.SN, N = args.num))
+
+		spec_ax.plot(vel_bins,spectrum, color = 'Red', zorder = 0, ls = '-', linewidth = 2)
+		spec_ax.plot(vel_bins,obs_spectrum, color = 'Black', zorder = -1, ls = '--')
+		noise_ax.plot(vel_bins,noise, color = 'Black', zorder = 1, ls = '--')
+		noise_ax.plot([vel_bins[0], vel_bins[-1]], [-1.e0 * rms, -1.e0 * rms],
+				color = 'Red', ls = '-', zorder = 0, linewidth = 2)
+		noise_ax.plot([vel_bins[0],vel_bins[-1]],[rms,rms], 
+				color = 'Red', ls = '-', zorder = 0, linewidth = 2)
+		spec_ax.plot([minvel,minvel], [np.min(obs_spectrum), np.max(obs_spectrum)],
+				ls = ':', linewidth = 3, color = 'Green', zorder = 0)
+		spec_ax.plot([maxvel,maxvel], [np.min(obs_spectrum), np.max(obs_spectrum)],
+				ls = ':', linewidth = 3, color = 'Green', zorder = 0)
+		spec_ax.plot([midvel,midvel], [np.min(obs_spectrum), np.max(obs_spectrum)],
+				ls = '--', linewidth = 3, color = 'Green', zorder = 0)
+
+		spec_ax.plot([PeakL_vel,PeakL_vel], [np.max(obs_spectrum) - rms, np.max(obs_spectrum)],
+				ls = '--', linewidth = 2, color = 'Blue', zorder = 0)
+		spec_ax.plot([PeakR_vel,PeakR_vel], [np.max(obs_spectrum) - rms, np.max(obs_spectrum)],
+				ls = '--', linewidth = 2, color = 'Blue', zorder = 0)
+
+		if args.save == True:
+			plotdir = '{dir}figures/{mc}_SN{SN}_N{N}_spectrum.png'.format(
+				dir = args.dir, mc = model_code, SN = args.SN, N = args.num)
+			fig.savefig(plotdir, dpi = 150)
+		else:	
+			plt.show()
 
 def density_plot(args):
 	"""
