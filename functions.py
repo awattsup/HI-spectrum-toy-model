@@ -13,7 +13,7 @@ from scipy.special import erf
 
 
 
-def create_arrays(dim, params):
+def create_arrays(dim, params)
 	"""
 	Creates 2D arrays of radius and angle for the HI toy model
 
