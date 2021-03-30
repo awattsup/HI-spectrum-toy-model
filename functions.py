@@ -14,21 +14,45 @@ from scipy.special import erf
 #### global variables
 badflag = -123456						#flag for pixels not covered by model
 
+default_params = {'dim':1000, 'incl':60, 'MHI':1.e9, 'dist':50,
+				'HImod':'FE', 'HIparams':[1,2.35],
+				'RCparams':[200,0.164,0.002], 'Vdisp':7,
+				'Vlim':400, 'Vres':5, 'Vsm':10, 'RMS':0}
 
+# default_params = {'dim':1000, 'incl':60, 'MHI':1.e9, 'dist':50,
+# 				'HImod':'FE', 'HIparams':[[1,1],[2.35,1.35]],
+# 				'RCparams':[200,0.164,0.002], 'Vdisp':7,
+# 				'Vlim':400, 'Vres':5, 'Vsm':10, 'RMS':0}
+
+# default_params = {'dim':1000, 'incl':60, 'MHI':1.e9, 'dist':50,
+# 				'HImod':'FE', 'HIparams':[1,2.35],
+# 				'RCparams':[[200,150],[0.164,0.164],[0.002,0.002]], 'Vdisp':7,
+# 				'Vlim':400, 'Vres':5, 'Vsm':10, 'RMS':0}
+
+
+def mock_global_HI_spectrum(params=default_params):
+
+	radius, costheta, Ropt = create_arrays(params)
+	mom0 = create_mom0(radius, costheta, params)
+	mom1 = create_mom1(radius, costheta, params)
+	mom2 = create_mom2(radius, params)
+
+	vel_bins, spectrum, Sint = create_HI_spectrum(mom0, mom1, mom2, params)
+
+	return [mom0, mom1, mom2], np.array([vel_bins,spectrum]).T
 
 #### creation functions
 
-def create_arrays(dim = 1000, params):
+def create_arrays(params):
 	"""
 	Creates 2D arrays of radius and angle for the HI toy model
 
     Parameters
     ----------
-    dim : int 	[pixels]
-        Dimension N 
 	params : list
 		List of input parameters
-			params[0] = Galaxy inclination 	[deg]
+			dim = dimension N
+			incl = Galaxy inclination 	[deg]
         	
     Returns
     -------
@@ -40,7 +64,7 @@ def create_arrays(dim = 1000, params):
  	Ropt : float 	[pixels]
  		Value of the optical radius in pixels defined as N/4, making Rmax = 2 Ropt
     """
-
+	dim = params['dim']
 	radius = np.zeros([dim, dim])
 	costheta = np.zeros([dim, dim])
 	incl = 1.e0 / np.cos(params['incl'] * np.pi / 180.e0)						#inclination correction goes as 1/cos
@@ -101,8 +125,6 @@ def create_mom0(radius, costheta, params):
 	if params['HImod'] == 'FE':
 		mom0_map = flat2exp(radius, params)
 
-
-
 	return mom0_map
 
 def create_mom1(radius, costheta, params):
@@ -161,7 +183,7 @@ def create_mom2(radius, params):
 
 	dim  = len(radius)
 	mom2_map = np.zeros([dim,dim])
-	mom2_map = params['Vdisp']
+	mom2_map += params['Vdisp']
 
 	mom2_map[radius == badflag] = badflag
 
@@ -206,8 +228,8 @@ def create_HI_spectrum(mom0, mom1, mom2, params):
 	mJy_conv = 1.e3 / (2.356e5 * (dist * dist))			#CHECK MHI flux density to mJy
 
 
-	mom2 = mom2[mom0 != badflag].flatten()
-	mom1 = mom1[mom0 != badflag].flatten()
+	mom2 = mom2[mom2 != badflag].flatten()
+	mom1 = mom1[mom1 != badflag].flatten()
 	mom0 = mom0[mom0 != badflag].flatten()
 
 	for pp in range(len(mom0)):
@@ -216,7 +238,7 @@ def create_HI_spectrum(mom0, mom1, mom2, params):
 											mu = mom1[pp], 
 											sigma = mom2[pp])
 	Sint = np.sum(spectrum) * Vres
-	spectrum *= mJy_conv
+	# spectrum *= mJy_conv
 
 	return vel_bins, spectrum, Sint
 
@@ -248,8 +270,8 @@ def flat2exp(radius, params):
 		2D array of HI mass in each pixel
     """
 
-    Rt = params['HIparams'][0]
-    Re = params['HIparams'][1]
+	Rt = params['HIparams'][0]
+	Re = params['HIparams'][1]
 
 	Re = 1.e0 / Re
 	mom0  = np.exp(-1.e0 * (radius - Rt) * Re)		#distribute exponentionally (e^0 at r=Rt)
@@ -258,8 +280,9 @@ def flat2exp(radius, params):
 	else:												
 		mom0[np.where(radius < Rt)] = 1.e0				#symmetric case
 
-	mom0[radius == badflag] = badflag					#assign bad flags
+
 	mom0 = mom0 * (params['MHI'] / np.sum(mom0[mom0 != badflag]))	#normalise to total HI mass
+	mom0[radius == badflag] = badflag								#assign bad flags
 	return mom0
 
 
@@ -314,7 +337,7 @@ def add_noise(spectrum, params):
 		Noiseless HI spectrum 
 	params : list
 		List of model input parameters
-			params[21] = input RMS measurement noise [mJy]
+			RMS = input RMS measurement noise [mJy]
 
     Returns
     -------
@@ -322,7 +345,7 @@ def add_noise(spectrum, params):
 		Observed spectrum with measurement noise 
 	"""
 
-	RMS = params[21]
+	RMS = params['RMS']
 	noise_arr = np.random.normal(np.zeros(len(spectrum)), RMS)
 	obs_spectrum = spectrum + noise_arr
 	return obs_spectrum
@@ -339,8 +362,8 @@ def smooth_spectrum(vel_bins, spectrum, params):
 		Observed spectrum with RMS noise added 
 	params : list
 		List of model input parameters
-			params[24] = Measurement velocity resolution	[km/s]
-			params[25] = Smoothed velocity resolution		[km/s]
+			Vres = Measurement velocity resolution	[km/s]
+			Vsm = Smoothed velocity resolution		[km/s]
 
     Returns
     -------
@@ -348,8 +371,8 @@ def smooth_spectrum(vel_bins, spectrum, params):
 		Smoothed observed spectrum 	[mJy]
 	"""
 
-	Vres = params[24]
-	Vsm = params[25]
+	Vres = params['Vres']
+	Vsm = params['Vsm']
 	if Vsm > 0:
 		box_channels = int(Vsm / Vres)
 		smoothed_spectrum = convolve(spectrum, Box1DKernel(box_channels)) 
@@ -669,9 +692,9 @@ def Gaussian_PDF(vel, mu, sigma, alpha = 0):
 	"""
 
 	if alpha != 0:							#include skewness 
-		G = 2.e0 * np.exp(-1.e0 * ((vel - mu) * (vel - mu))/(2.e0 * sigma * sigma)) * Gaussian_CDF(alpha * vel , mu, sigma)
+		G = 2.e0 * np.exp(-0.5e0 * ((vel - mu) * (vel - mu))/(sigma * sigma)) * Gaussian_CDF(alpha * vel , mu, sigma)
 	else:
-		G = 2.e0 * np.exp(-1.e0 * ((vel - mu) * (vel - mu))/(2.e0 * sigma * sigma)) 
+		G = 1.e0 / (sigma * np.sqrt(2.e0*np.pi) ) * np.exp(-0.5e0 * ((vel - mu) * (vel - mu))/(sigma * sigma)) 
 	return G
 
 def Gaussian_CDF(x, mu, sigma):
@@ -721,4 +744,5 @@ def Tophat(vel, width):
 	return T
 
 
-
+if __name__ == '__main__':
+	mock_global_HI_spectrum()
