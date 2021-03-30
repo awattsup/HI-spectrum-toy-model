@@ -75,71 +75,37 @@ def create_mom0(radius, costheta, params):
         2D array of galactocentric radii
     costheta : N x N array
         2D array of cos(theta) values from the receding major axis
-    params : list
+    params : dict
     	List of model input parameters
-    		params[0] = Galaxy inclination 	[deg]
-	    	params[1] = Model type
-	    	params[2] = Asymmetry flag
-	    	params[3] = Total HI mass 		[Msun]
-	    	params[4:7] = Receding side / symmetric input parameters
-	    	params[8:11] = Approaching side parameters
-	Ropt : float 	[pixels]
-    	Optical radius 
+    		HIparams = HI distribution parameters
+	    	HImod = HI distribution model type
 
     Returns
     -------
-	mom0_map : N x N array 	[Msun/pc^2]
+	mom0_map : N x N array 	[Msun/pix]
 		2D array of projected HI surface densities
-	rad1d : array 	[1 / Ropt]
-		Radii bins for measured radial HI surface densities
-	hi_profile : 2 element list of arrays 	[Msun/pc^2]
-		Radial projected HI surface density profiles of 
-		receding and approaching side respectively
-	"""
+	"""								
 
-	hi_model = params['HImod']					
-	MHI = params['MHI']								
+	if isinstance(params['HIparams'][0],int):			#check for integer parameters - symmetric case
+		HIparams = params['HIparams']
+	else:												#lists of parameters for asym cases
+		HIparams = []									
+		for pp in range(len(params['HIparams'])):		#interpolate azimuthally
+			p_rec = params['HIparams'][pp][0]
+			p_app = params['HIparams'][pp][1]
+			p = p_app * (1.e0 + (((p_rec - p_app)/p_app) * 0.5e0* (costheta + 1.e0)))
+			HIparams.append(p)
 	
-	params['HImod'][-1] == 'A'
-	if flag_asymhi ==0:							#no asymmetries
-		p1 = params[4]
-		p2 = params[5]
-		p3 = params[6]
-		p4 = params[7]
-	elif flag_asymhi == 1:						#asymmetric distribution
-		p1_rec = params[4]
-		p2_rec = params[5]
-		p3_rec = params[6]
-		p4_rec = params[7]
-		p1_app = params[8]
-		p2_app = params[9]
-		p3_app = params[10]
-		p4_app = params[11]						#linearly interpolate over azimuth for smooth
-												#variation of approaching/receeding parameters
-		p1 = p1_app * (1.e0 + (((p1_rec - p1_app)/p1_app) * 0.5e0* (costheta + 1.e0)))
-		p2 = p2_app * (1.e0 + (((p2_rec - p2_app)/p2_app) * 0.5e0* (costheta + 1.e0)))
-		p3 = p3_app * (1.e0 + (((p3_rec - p3_app)/p3_app) * 0.5e0* (costheta + 1.e0)))
-		p4 = p4_app * (1.e0 + (((p4_rec - p4_app)/p4_app) * 0.5e0* (costheta + 1.e0)))
-	else:
-		print('Invalid HI asymmetry flag')
-		exit()
-	# if hi_model == 'DG':
-	# 	mom0_map = double_gauss(radius, p1, p2, p3, p4, Ropt, MHI)
-	# if hi_model == 'SG':
-	# 	mom0_map = single_gauss(radius, p1, p2, p3, Ropt, MHI)
-	# if hi_model == 'P':
-	# 	mom0_map = polynomial(radius, p1, p2, p3, p4, Ropt, MHI)
-	# if hi_model == 'BB':
-	# 	mom0_map = BB_universal(radius, p1, Ropt, MHI)
-	
-	if hi_model == 'FE':
-		mom0_map = flat2exp(radius, p1, p2, MHI)
+	params['HIparams'] = HIparams
+
+	if params['HImod'] == 'FE':
+		mom0_map = flat2exp(radius, params)
 
 
 
 	return mom0_map
 
-def create_mom1(radius, costheta, rad1d, params):
+def create_mom1(radius, costheta, params):
 	"""
 	Generates a 2D gas velocity map for symmetric or asymmetric distribution inputs
 
@@ -149,66 +115,31 @@ def create_mom1(radius, costheta, rad1d, params):
         2D array of galactocentric radii
     costheta : N x N array
         2D array of cos(theta) values from the receding major axis
-    rad1d : array [1 / Ropt]
-    	Radii bins for measuring input rotation curve
-    params : list
+    params : dict
     	List of model input parameters
-    		params[0] = Galaxy inclination 	[deg]
-	    	params[12] = Asymmetry flag
-	    	params[13:15] = Receding side / symmetric input parameters
-	    	params[16:18] = Approaching side parameters
-	    	params[19] = Velocity dispersion 	[km/s]
-	Ropt : float 	[pixels]
-    	Optical radius 
+    		incl = Galaxy inclination 	[deg]
+	    	RCparams = Rotation curve parameters
 
     Returns
     -------
 	mom1_map : N x N array 	[km/s]
 		2D array of projected gas rotational velcoities
-	input_RC : array 	[km/s]
-		Projected input rotation curve
 	"""
 	
-	dim = len(radius)
-	mom1_map = np.zeros([dim,dim])
-	flag_asymrc = params[12]						#flag for asymmetic RC
-	incl = params[0]
-	Vdisp = params[19]							#velocity dispersion
 
-	if flag_asymrc == 0:						#RC is symmetric
-		V0 = params[13]
-		scalePE = params[14]
-		alpha = params[15]
-
-		RC = polyex_RC(rad1d * Ropt, 1.e0, V0, scalePE, Ropt, alpha, incl)
-		input_RC = [RC, RC]
-	elif flag_asymrc == 1:						#RC is asymmetric
-		V0_rec = params[13]
-		scalePE_rec = params[14]
-		alpha_rec = params[15]
-		V0_app = params[16]
-		scalePE_app = params[17]
-		alpha_app = params[18]
-
-		V0 = V0_app * (1.e0 + (((V0_rec - V0_app) / V0_app) 
-				* 0.5e0 * (costheta + 1.e0)))
-		scalePE = scalePE_app * (1.e0 + (((scalePE_rec - scalePE_app) / scalePE_app)
-				* 0.5e0 * (costheta + 1.e0)))
-		alpha = alpha_app * (1.e0 + (((alpha_rec - alpha_app) / alpha_app) 
-				* 0.5e0 * (costheta + 1.e0)))
-
-		RC_rec = polyex_RC(rad1d * Ropt, 1.e0, V0_rec, scalePE_rec, Ropt, alpha_rec, incl)
-		RC_app = polyex_RC(rad1d * Ropt, 1.e0, V0_app, scalePE_app, Ropt, alpha_app, incl)
-		input_RC = [RC_rec, RC_app]
-	else: 
-		print('Invalic RC asymmetry flag')
-		exit()
-	mom1_map = polyex_RC(radius, costheta, V0, scalePE, Ropt, alpha, incl)
-
-	if Vdisp >= 0:								#add velocity dispersion
-		mom1_map = np.random.normal(mom1_map, Vdisp)
-
-	return mom1_map, input_RC
+	if isinstance(params['RCparams'][0],int):			#check for integer parameters - symmetric case
+		RCparams = params['RCparams']
+	else:												#lists of parameters for asym cases
+		RCparams = []									
+		for pp in range(len(params['RCparams'])):		#interpolate azimuthally
+			p_rec = params['RCparams'][pp][0]
+			p_app = params['RCparams'][pp][1]
+			p = p_app * (1.e0 + (((p_rec - p_app)/p_app) * 0.5e0* (costheta + 1.e0)))
+			RCparams.append(p)
+	
+	params['RCparams'] = RCparams
+	mom1_map = polyex_RC(radius, costheta, params)
+	return mom1_map
 
 def create_mom2(radius, params):
 	"""
@@ -218,16 +149,9 @@ def create_mom2(radius, params):
     ----------
     radius : N x N array 	[pixels]
         2D array of galactocentric radii
-    params : list
+    params : dict
     	List of model input parameters
-    		params[0] = Galaxy inclination 	[deg]
-	    	params[1] = Model type
-	    	params[2] = Asymmetry flag
-	    	params[3] = Total HI mass 		[Msun]
-	    	params[4:7] = Receding side / symmetric input parameters
-	    	params[8:11] = Approaching side parameters
-	Ropt : float 	[pixels]
-    	Optical radius 
+    		Vdisp = Velocity dispersion	[km/s]
 
     Returns
     -------
@@ -237,11 +161,9 @@ def create_mom2(radius, params):
 
 	dim  = len(radius)
 	mom2_map = np.zeros([dim,dim])
+	mom2_map = params['Vdisp']
+
 	mom2_map[radius == badflag] = badflag
-
-	mom2_map[mom2_map != badflag] = 7
-
-	
 
 	return mom2_map
 
@@ -251,19 +173,17 @@ def create_HI_spectrum(mom0, mom1, mom2, params):
 
     Parameters
     ----------
-    mom0 : N x N array 	[Msun/pc^2]
+    mom0 : N x N array 	[Msun/pix]
         2D array of projected gas surface densities
     mom1 : N x N array 	[km/s]
         2D array of projected gas rotational velocities
     mom2 : N x N array  [km/s]
     	2D array of gas velocity dispersion
-    params : list
+    params : dict
     	List of model input parameters
-    		params[3] = Total HI mass 	[Msun]
-	    	params[20] = Distance to galaxy 	[Mpc]
-	    	params[22] = Minimum measurement velocity 	[km/s]
-	    	params[23] = Maximum measurement velocity 	[km/s]
-	    	params[24] = Measurement velocity resolution [km/s]
+    		Vres = Velocity resolution 	[km/s]
+	    	Vlim = Velocity limits 		[km/s]
+	    	dist = Distance to galaxy 	[Mpc]
 
     Returns
     -------
@@ -275,11 +195,10 @@ def create_HI_spectrum(mom0, mom1, mom2, params):
 		Integrated flux of spectrum 
 	"""
 
-	MHI = params[3]
-	dist = params[20]							
-	Vmin  = params[22]
-	Vmax  = params[23]
-	Vres  = params[24]							
+	dist = params['dist']							
+	Vmin  = -1.e0*params['Vlim']
+	Vmax  = params['Vlim']
+	Vres  = params['Vres']							
 	
 	vel_bins = np.arange(Vmin, Vmax, Vres)
 	spectrum = np.zeros(len(vel_bins))
@@ -296,8 +215,8 @@ def create_HI_spectrum(mom0, mom1, mom2, params):
 		spectrum += MHI_flux * Gaussian_PDF(vel = vel_bins, 
 											mu = mom1[pp], 
 											sigma = mom2[pp])
+	Sint = np.sum(spectrum) * Vres
 	spectrum *= mJy_conv
-	Sint = mjy_conv * MHI / Vstep
 
 	return vel_bins, spectrum, Sint
 
@@ -305,7 +224,7 @@ def create_HI_spectrum(mom0, mom1, mom2, params):
 
 #### distributions and RCs
 
-def flat2exp(radius, R_0, R_e MHI):
+def flat2exp(radius, params):
 	"""
 	Creates a 2D HI mass map with a raidal distribution which 
 	transitions from constant surface density to an exponential decline
@@ -314,12 +233,14 @@ def flat2exp(radius, R_0, R_e MHI):
     ----------
     radius : N x N array 	[pixels]
         2D array of galactocentric radii
-    R_0 : float 	[1 / Ropt]
-    	Radius where the radial distribution transitions from flat to exponential
-    R_e : float 	[1 / Ropt]
-    	Scale length of exponential decline
     MHI : float 	[Msun]
-    	Total HI mass
+    	Total HI mass'
+	params : dict
+		Contains HI model parameters
+   		Rt : float / N x N array 	[1 / Ropt]
+    		Radius where the radial distribution transitions from flat to exponential
+   		Re : float / N x N array 	[1 / Ropt]
+    		Scale length of exponential decline
 
     Returns
     -------
@@ -327,19 +248,22 @@ def flat2exp(radius, R_0, R_e MHI):
 		2D array of HI mass in each pixel
     """
 
-	R_e = 1.e0 / R_e
-	mom0  = np.exp(-1.e0 * (radius - R_0) * R_e)		#distribute exponentionally (e^0 at r=R_0)
-	if np.isscalar(R_0) == False:						#saturate interior to R_0	
-		mom0[np.where((radius < R_0) == True)] = 1.e0	#R_0 varies between sides
+    Rt = params['HIparams'][0]
+    Re = params['HIparams'][1]
+
+	Re = 1.e0 / Re
+	mom0  = np.exp(-1.e0 * (radius - Rt) * Re)		#distribute exponentionally (e^0 at r=Rt)
+	if np.isscalar(Rt) == False:						#saturate interior to Rt	
+		mom0[np.where((radius < Rt) == True)] = 1.e0	#Rt varies between sides
 	else:												
-		mom0[np.where(radius < R_0)] = 1.e0				#symmetric case
+		mom0[np.where(radius < Rt)] = 1.e0				#symmetric case
 
 	mom0[radius == badflag] = badflag					#assign bad flags
-	mom0 = mom0 * (MHI / np.sum(mom0[mom0 != badflag]))	#normalise to total HI mass
+	mom0 = mom0 * (params['MHI'] / np.sum(mom0[mom0 != badflag]))	#normalise to total HI mass
 	return mom0
 
 
-def polyex_RC(radius, costheta, V0, scalePE, aa, incl):
+def polyex_RC(radius, costheta, params):
 	"""
 	Creates a 2D projected velocity map using the Polyex rotation curve (RC) defined 
 	by Giovanelli & Haynes 2002, and used by Catinella, Giovanelli & Haynes 2006
@@ -350,16 +274,16 @@ def polyex_RC(radius, costheta, V0, scalePE, aa, incl):
         2D array of galactocentric radii
     costheta : N x N array
         2D array of cos(theta) values from the receding major axis
-    V_0 : float 	[km/s]
-    	Amplitude of RC
-    scalePE : float 	[1 / Ropt]
-    	Scale length of exponential inner RC
-    Ropt : float 	[pixels]
-    	Optical radius
-    aa : float
-    	Slope of outer, linear part of RC
-    incl : float 	[deg]
-    	Galaxy inclination
+    params : dict
+    	Contains RC model parameters
+	    V_0 : float / N x N array 	[km/s]
+	    	Amplitude of RC
+	    scalePE : float / N x N array 	[1 / Ropt]
+	    	Scale length of exponential inner RC
+	    aa : float / N x N array
+	    	Slope of outer, linear part of RC
+	    incl : float 	[deg]
+	    	Galaxy inclination
 
     Returns
     -------
@@ -367,8 +291,10 @@ def polyex_RC(radius, costheta, V0, scalePE, aa, incl):
 		2D array of inclination corrected rotational velocity of each pixel
 	"""
 
-	incl = np.sin(incl * (np.pi / 180.e0))
-	R_PE = 1.e0 / scalePE												#rotation curve scale length Catinella+06
+	incl = np.sin(params['incl'] * (np.pi / 180.e0))
+	V0 = params['RCparams'][0]
+	R_PE = 1.e0 / params['RCparams'][1]									#rotation curve scale length Catinella+06
+	aa = params['RCparams'][2]											
 	mom1 = ( (V0 * (1.e0 - np.exp((-1.e0 * radius) * R_PE)) * 
 		(1.e0 + aa * radius * R_PE)) * costheta * incl )
 	mom1[radius == badflag] = badflag									#flag pixels outside model
