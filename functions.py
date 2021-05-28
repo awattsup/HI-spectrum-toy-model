@@ -16,8 +16,8 @@ badflag = -123456						#flag for pixels not covered by model
 
 default_params = {'dim':1000, 'incl':60, 'MHI':1.e9, 'dist':50,
 				'HImod':'FE', 'HIparams':[1,2.35],
-				'RCparams':[200,0.164,0.002], 'Vdisp':7,
-				'Vlim':400, 'Vres':5, 'Vsm':10, 'RMS':0}
+				'RCparams':[200,0.164,0.002], 'Vdisp':10,
+				'Vlim':400, 'Vres':2, 'Vsm':10, 'RMS':0}
 
 # default_params = {'dim':1000, 'incl':60, 'MHI':1.e9, 'dist':50,
 # 				'HImod':'FE', 'HIparams':[[1,1],[2.35,1.35]],
@@ -110,17 +110,16 @@ def create_mom0(radius, costheta, params):
 		2D array of projected HI surface densities
 	"""								
 
-	if isinstance(params['HIparams'][0],int):			#check for integer parameters - symmetric case
-		HIparams = params['HIparams']
-	else:												#lists of parameters for asym cases
+	if isinstance(params['HIparams'][0],list):			#check for lists of parameters - asym cases
 		HIparams = []									
 		for pp in range(len(params['HIparams'])):		#interpolate azimuthally
 			p_rec = params['HIparams'][pp][0]
 			p_app = params['HIparams'][pp][1]
 			p = p_app * (1.e0 + (((p_rec - p_app)/p_app) * 0.5e0* (costheta + 1.e0)))
 			HIparams.append(p)
-	
-	params['HIparams'] = HIparams
+		params['HIparams'] = HIparams
+	# else:												#symmetric case
+	# 	HIparams = params['HIparams']
 
 	if params['HImod'] == 'FE':
 		mom0_map = flat2exp(radius, params)
@@ -149,17 +148,16 @@ def create_mom1(radius, costheta, params):
 	"""
 	
 
-	if isinstance(params['RCparams'][0],int):			#check for integer parameters - symmetric case
-		RCparams = params['RCparams']
-	else:												#lists of parameters for asym cases
+	if isinstance(params['RCparams'][0],list):			#check for lists of parameters - asym cases
 		RCparams = []									
 		for pp in range(len(params['RCparams'])):		#interpolate azimuthally
 			p_rec = params['RCparams'][pp][0]
 			p_app = params['RCparams'][pp][1]
 			p = p_app * (1.e0 + (((p_rec - p_app)/p_app) * 0.5e0* (costheta + 1.e0)))
 			RCparams.append(p)
+
+		params['RCparams'] = RCparams
 	
-	params['RCparams'] = RCparams
 	mom1_map = polyex_RC(radius, costheta, params)
 	return mom1_map
 
@@ -255,10 +253,11 @@ def flat2exp(radius, params):
     ----------
     radius : N x N array 	[pixels]
         2D array of galactocentric radii
-    MHI : float 	[Msun]
-    	Total HI mass'
+   
 	params : dict
 		Contains HI model parameters
+		MHI : float 	[Msun]
+    		Total HI mass'
    		Rt : float / N x N array 	[1 / Ropt]
     		Radius where the radial distribution transitions from flat to exponential
    		Re : float / N x N array 	[1 / Ropt]
@@ -324,6 +323,44 @@ def polyex_RC(radius, costheta, params):
 	return mom1
 
 
+def input_HI_distribution(radius, params):
+	"""
+	The radial profile for a given HI distribution
+
+    Parameters
+    ----------
+    radius : array 	[pixels]
+        Radii for the model
+   
+	params : dict
+		Contains HI model parameters
+		MHI : float 	[Msun]
+			Total HI mass'
+		Rt : float		[1 / Ropt]
+			Radius where the radial distribution transitions from flat to exponential
+   		Re : float 		[1 / Ropt]
+			Scale length of exponential decline
+
+    Returns
+    -------
+	mom0 : N x N array 	[Msun / pixel]
+		2D array of HI mass in each pixel
+    """
+
+	Rt = params['HIparams'][0]
+	Re = params['HIparams'][1]
+
+	Re = 1.e0 / Re
+	mom0  = np.exp(-1.e0 * (radius - Rt) * Re)		#distribute exponentionally (e^0 at r=Rt)
+	if np.isscalar(Rt) == False:						#saturate interior to Rt	
+		mom0[np.where((radius < Rt) == True)] = 1.e0	#Rt varies between sides
+	else:												
+		mom0[np.where(radius < Rt)] = 1.e0				#symmetric case
+
+
+	mom0 = mom0 * (params['MHI'] / np.sum(mom0[mom0 != badflag]))	#normalise to total HI mass
+	mom0[radius == badflag] = badflag								#assign bad flags
+	return mom0
 
 #### observational effects & measurements
 
@@ -398,7 +435,6 @@ def size_mass_relation(MHI):
 	DHI = 10.e0 ** (0.506 * np.log10(0.83*MHI) - 3.293e0)
 	DHI = DHI * 1.e3  						#convert to pc
 	return DHI
-
 
 
 def locate_peaks(spectrum):
