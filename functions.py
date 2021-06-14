@@ -32,12 +32,36 @@ default_params = {'dim':1000, 'incl':60, 'MHI':1.e9, 'dist':50,
 
 def mock_global_HI_spectrum(params=default_params):
 
-	radius, costheta, Ropt = create_arrays(params)
-	mom0 = create_mom0(radius, costheta, params)
-	mom1 = create_mom1(radius, costheta, params)
-	mom2 = create_mom2(radius, params)
+	if params['HImod'] == 'gaussian':
+		vel_bins, spectrum = create_Gaussian_spectrum(params)
+		mom0 = mom1 = mom2 = -1
 
-	vel_bins, spectrum, Sint = create_HI_spectrum(mom0, mom1, mom2, params)
+	elif params['HImod'] == 'tophat':
+		vel_bins, spectrum = create_Tophat_spectrum(params)
+		mom0 = mom1 = mom2 = -1
+
+	else:
+		radius, costheta, Ropt = create_arrays(params)
+		mom0 = create_mom0(radius, costheta, params)
+		mom1 = create_mom1(radius, costheta, params)
+		mom2 = create_mom2(radius, params)
+
+		vel_bins, spectrum = create_HI_spectrum(mom0, mom1, mom2, params)
+
+		mom0[mom0==badflag]=np.nan
+		mom1[mom1==badflag]=np.nan
+		mom2[mom2==badflag]=np.nan
+
+
+	mJy_conv = flux_to_mJy(params)		
+	spectrum *= mJy_conv
+	# Sint = np.sum(spectrum) * params['Vres']
+
+	if params['RMS'] > 0:
+		spectrum = add_noise(spectrum, params)
+
+	if params['Vsm'] != 0:
+		spectrum = smooth_spectrum(spectrum, params)
 
 	return [mom0, mom1, mom2], np.array([vel_bins,spectrum]).T
 
@@ -111,19 +135,22 @@ def create_mom0(radius, costheta, params):
 	"""								
 
 	if isinstance(params['HIparams'][0],list):			#check for lists of parameters - asym cases
-		HIparams = []									
+		HIparam_arrays = []									
 		for pp in range(len(params['HIparams'])):		#interpolate azimuthally
 			p_rec = params['HIparams'][pp][0]
 			p_app = params['HIparams'][pp][1]
+			print(p_rec,p_app)
 			p = p_app * (1.e0 + (((p_rec - p_app)/p_app) * 0.5e0* (costheta + 1.e0)))
-			HIparams.append(p)
-		params['HIparams'] = HIparams
-	# else:												#symmetric case
-	# 	HIparams = params['HIparams']
+			HIparam_arrays.append(p)
+	else:												#symmetric case
+		HIparam_arrays = params['HIparams']
+	params['HIparam_arrays'] = HIparam_arrays
 
 	if params['HImod'] == 'FE':
 		mom0_map = flat2exp(radius, params)
 
+	dist_norm = np.sum(mom0_map[mom0_map != badflag])
+	mom0_map[mom0_map != badflag] *= params['MHI']/dist_norm			#normalise to total HI mass
 	return mom0_map
 
 def create_mom1(radius, costheta, params):
@@ -147,16 +174,16 @@ def create_mom1(radius, costheta, params):
 		2D array of projected gas rotational velcoities
 	"""
 	
-
 	if isinstance(params['RCparams'][0],list):			#check for lists of parameters - asym cases
-		RCparams = []									
+		RCparam_arrays = []									
 		for pp in range(len(params['RCparams'])):		#interpolate azimuthally
 			p_rec = params['RCparams'][pp][0]
 			p_app = params['RCparams'][pp][1]
 			p = p_app * (1.e0 + (((p_rec - p_app)/p_app) * 0.5e0* (costheta + 1.e0)))
-			RCparams.append(p)
-
-		params['RCparams'] = RCparams
+			RCparam_arrays.append(p)
+	else:												#symmetric case
+		RCparam_arrays = params['RCparams']
+	params['RCparam_arrays'] = RCparam_arrays
 	
 	mom1_map = polyex_RC(radius, costheta, params)
 	return mom1_map
@@ -215,31 +242,39 @@ def create_HI_spectrum(mom0, mom1, mom2, params):
 		Integrated flux of spectrum 
 	"""
 
-	dist = params['dist']							
-	Vmin  = -1.e0*params['Vlim']
-	Vmax  = params['Vlim']
-	Vres  = params['Vres']							
-	
-	vel_bins = np.arange(Vmin, Vmax, Vres)
+	vel_bins = np.arange(-params['Vlim'], params['Vlim'], params['Vres'])
 	spectrum = np.zeros(len(vel_bins))
-
-	mJy_conv = 1.e3 / (2.356e5 * (dist * dist))			#CHECK MHI flux density to mJy
-
 
 	mom2 = mom2[mom2 != badflag].flatten()
 	mom1 = mom1[mom1 != badflag].flatten()
 	mom0 = mom0[mom0 != badflag].flatten()
 
 	for pp in range(len(mom0)):
-		MHI_flux = mom0[pp]/Vres			#MHI flux density in Msun s /km
-		spectrum += MHI_flux * Gaussian_PDF(vel = vel_bins, 
+		spectrum += mom0[pp] * Gaussian_PDF(vel = vel_bins, 		#MHI flux density in Msun s /km
 											mu = mom1[pp], 
 											sigma = mom2[pp])
-	Sint = np.sum(spectrum) * Vres
-	# spectrum *= mJy_conv
 
-	return vel_bins, spectrum, Sint
+	return vel_bins, spectrum
 
+
+def create_Gaussian_spectrum(params):				
+	
+	vel_bins = np.arange(-params['Vlim'], params['Vlim'], params['Vres'])
+	if len(params['HIparams']) == 3:
+		spectrum =Gaussian_PDF(vel_bins, params['HIparams'][0],params['HIparams'][1],params['HIparams'][2])
+	else:
+		spectrum =Gaussian_PDF(vel_bins, params['HIparams'][0],params['HIparams'][1])
+	spectrum *= params['MHI']
+
+	return vel_bins, spectrum
+
+def create_Tophat_spectrum(params):
+
+	vel_bins = np.arange(-params['Vlim'], params['Vlim'], params['Vres'])
+	spectrum = Tophat(vel_bins, params['HIparams'])
+	spectrum *= params['MHI'] / (np.sum(spectrum)*params['Vres'])
+
+	return vel_bins, spectrum
 
 
 #### distributions and RCs
@@ -269,8 +304,8 @@ def flat2exp(radius, params):
 		2D array of HI mass in each pixel
     """
 
-	Rt = params['HIparams'][0]
-	Re = params['HIparams'][1]
+	Rt = params['HIparam_arrays'][0]
+	Re = params['HIparam_arrays'][1]
 
 	Re = 1.e0 / Re
 	mom0  = np.exp(-1.e0 * (radius - Rt) * Re)		#distribute exponentionally (e^0 at r=Rt)
@@ -278,14 +313,10 @@ def flat2exp(radius, params):
 		mom0[np.where((radius < Rt) == True)] = 1.e0	#Rt varies between sides
 	else:												
 		mom0[np.where(radius < Rt)] = 1.e0				#symmetric case
-
-
-	mom0 = mom0 * (params['MHI'] / np.sum(mom0[mom0 != badflag]))	#normalise to total HI mass
-	mom0[radius == badflag] = badflag								#assign bad flags
+	mom0[radius == badflag] = badflag				#flag pixels not in model
 	return mom0
 
-
-def polyex_RC(radius, costheta, params):
+def polyex_RC(radius, costheta, params,obs=True):
 	"""
 	Creates a 2D projected velocity map using the Polyex rotation curve (RC) defined 
 	by Giovanelli & Haynes 2002, and used by Catinella, Giovanelli & Haynes 2006
@@ -312,26 +343,27 @@ def polyex_RC(radius, costheta, params):
 	mom1 : N x N array 	[km/s]
 		2D array of inclination corrected rotational velocity of each pixel
 	"""
+	if obs:
+		incl = np.sin(params['incl'] * (np.pi / 180.e0))
+	else:
+		incl = 1.e0
+	V0 = params['RCparam_arrays'][0]
+	R_PE = 1.e0 / params['RCparam_arrays'][1]									#rotation curve scale length Catinella+06
+	aa = params['RCparam_arrays'][2]
 
-	incl = np.sin(params['incl'] * (np.pi / 180.e0))
-	V0 = params['RCparams'][0]
-	R_PE = 1.e0 / params['RCparams'][1]									#rotation curve scale length Catinella+06
-	aa = params['RCparams'][2]											
 	mom1 = ( (V0 * (1.e0 - np.exp((-1.e0 * radius) * R_PE)) * 
 		(1.e0 + aa * radius * R_PE)) * costheta * incl )
 	mom1[radius == badflag] = badflag									#flag pixels outside model
 	return mom1
 
 
-def input_HI_distribution(radius, params):
+
+def input_HIdist(params):
 	"""
 	The radial profile for a given HI distribution
 
     Parameters
     ----------
-    radius : array 	[pixels]
-        Radii for the model
-   
 	params : dict
 		Contains HI model parameters
 		MHI : float 	[Msun]
@@ -343,26 +375,116 @@ def input_HI_distribution(radius, params):
 
     Returns
     -------
-	mom0 : N x N array 	[Msun / pixel]
-		2D array of HI mass in each pixel
+	input_HI : list
+		List of radii and radial HI surface density(ies)
     """
 
-	Rt = params['HIparams'][0]
-	Re = params['HIparams'][1]
+	radius = np.arange(0,2,0.005)
 
-	Re = 1.e0 / Re
-	mom0  = np.exp(-1.e0 * (radius - Rt) * Re)		#distribute exponentionally (e^0 at r=Rt)
-	if np.isscalar(Rt) == False:						#saturate interior to Rt	
-		mom0[np.where((radius < Rt) == True)] = 1.e0	#Rt varies between sides
-	else:												
-		mom0[np.where(radius < Rt)] = 1.e0				#symmetric case
+	if isinstance(params['HIparams'][0],list):			#check for lists of parameters - asym cases
+		
+		params_temp = params
+		params_temp['HIparam_arrays'] = [p[0] for p in params['HIparams']]
+		HIdist_rec =  flat2exp(radius,params_temp)
+		params_temp['HIparam_arrays'] = [p[1] for p in params['HIparams']]
+		HIdist_app =  flat2exp(radius,params_temp)
+
+		pix_scale = ((4.e0/params['dim'])*(4.e0/params['dim'])/np.sin(params['incl']*np.pi/180.))
+
+		Anorm_rec = np.sum(HIdist_rec*2.e0*np.pi*(radius)*np.abs(np.diff(radius)[0])) / pix_scale	#integrate 2piR(dR)(Sigma)
+		Anorm_rec = params['MHI']/Anorm_rec
+
+		Anorm_app = np.sum(HIdist_app*2.e0*np.pi*(radius)*np.abs(np.diff(radius)[0])) / pix_scale	#integrate 2piR(dR)(Sigma)
+		Anorm_app = params['MHI']/Anorm_app
+
+		input_HI = [radius,Anorm_rec*HIdist_rec,Anorm_app*HIdist_app] 	
+
+	else:												#symmetric case
+		params_temp = params
+		params['HIparam_arrays'] = params['HIparams']
+		HIdist = flat2exp(radius,params)
+
+		# logDHI = Wang16_HIsizemass(np.log10(params['MHI']))
+		# RHI = 0.5*(10.**logDHI) * 1.e3 					#in pc
+		# Ropt = 0.66*RHI
+
+		pix_scale = ((4.e0/params['dim'])*(4.e0/params['dim'])/np.sin(params['incl']*np.pi/180.))
+
+		Anorm = np.sum(HIdist*2.e0*np.pi*(radius)*np.abs(np.diff(radius)[0])) / pix_scale	#integrate 2piR(dR)(Sigma)
+		Anorm = params['MHI']/Anorm
+
+		input_HI = [radius,Anorm*HIdist]
 
 
-	mom0 = mom0 * (params['MHI'] / np.sum(mom0[mom0 != badflag]))	#normalise to total HI mass
-	mom0[radius == badflag] = badflag								#assign bad flags
-	return mom0
+	return input_HI
+
+	# Rt = params['HIparams'][0]
+	# Re = params['HIparams'][1]
+
+	# Re = 1.e0 / Re
+	# mom0  = np.exp(-1.e0 * (radius - Rt) * Re)		#distribute exponentionally (e^0 at r=Rt)
+	# if np.isscalar(Rt) == False:						#saturate interior to Rt	
+	# 	mom0[np.where((radius < Rt) == True)] = 1.e0	#Rt varies between sides
+	# else:												
+	# 	mom0[np.where(radius < Rt)] = 1.e0				#symmetric case
+
+
+
+	# mom0 = mom0 * (params['MHI'] / np.sum(mom0[mom0 != badflag]))	#normalise to total HI mass
+	# mom0[radius == badflag] = badflag								#assign bad flags
+	# return mom0
+
+def input_RC(params):
+	"""
+	The rotation curve for the input model
+
+    Parameters
+    ----------
+	params : dict
+    	Contains RC model parameters
+		V_0 : float / N x N array 	[km/s]
+	    	Amplitude of RC
+		scalePE : float / N x N array 	[1 / Ropt]
+	    	Scale length of exponential inner RC
+		aa : float / N x N array
+	    	Slope of outer, linear part of RC
+
+    Returns
+    -------
+	RC : list 	
+		List of radii, and input RC(s)
+    """
+
+	radius = np.arange(0,2,0.01)
+
+	if isinstance(params['RCparams'][0],list):			#check for lists of parameters - asym cases
+		
+		params_temp = params
+		params_temp['RCparam_arrays'] = [p[0] for p in params['RCparams']]
+		RC_rec =  polyex_RC(radius,1,params_temp,obs=False)
+		params_temp['RCparam_arrays'] = [p[1] for p in params['RCparams']]
+		RC_app =  polyex_RC(radius,1,params_temp,obs=False)
+
+		RC = [radius,RC_rec,RC_app] 	
+
+	else:												#symmetric case
+		params_temp = params
+		params['RCparam_arrays'] = params['RCparams']
+		RC = polyex_RC(radius,1,params,obs=False)
+
+		RC = [radius,RC]
+
+	return RC
 
 #### observational effects & measurements
+
+def flux_to_mJy(params):
+	
+	if params['dist'] != 0:
+		mJy_conv = 1.e3 / (2.356e5 * (params['dist'] * params['dist']))
+	else:
+		mJy_conv = 1.	
+	return mJy_conv
 
 def add_noise(spectrum, params):
 	"""
@@ -410,31 +532,35 @@ def smooth_spectrum(vel_bins, spectrum, params):
 
 	Vres = params['Vres']
 	Vsm = params['Vsm']
-	if Vsm > 0:
-		box_channels = int(Vsm / Vres)
-		smoothed_spectrum = convolve(spectrum, Box1DKernel(box_channels)) 
-	else:
-		smoothed_spectrum = spectrum
+	box_channels = int(Vsm / Vres)
+	smoothed_spectrum = convolve(spectrum, Box1DKernel(box_channels)) 
 	return smoothed_spectrum
 
-def size_mass_relation(MHI):
+
+def Wang16_HIsizemass(logMHI = None, logDHI = None):
 	"""
-	Calculates the size of the HI disk using the Wang+16 HI size-mass relation
+	Calculates the size or diameter of the HI disk using the Wang+16 HI size-mass relation
 
-    Parameters
-    ----------
-    MHI : float 	[Msun]
-        Total HI mass
+	Parameters
+	----------
+	MHI : float 	[Msun]
+	    Total HI mass
 
-    Returns
-    -------
-	DHI : float [pc]
-		Diameter where the HI surface density equals 1 Msun/pc 
+	Returns
+	-------
+	DHI : float [kpc]
+		Diameter where the HI surface density equals 1 Msun/pc
 	"""
+	if np.ndim(logMHI)>0 or np.isscalar(logMHI!=None):
+		logDHI = 0.506 * logMHI - 3.293
+		return logDHI
 
-	DHI = 10.e0 ** (0.506 * np.log10(0.83*MHI) - 3.293e0)
-	DHI = DHI * 1.e3  						#convert to pc
-	return DHI
+	elif np.ndim(logDHI)>0 or np.isscalar(logDHI != None):
+		logMHI = (logDHI + 3.293) / 0.506
+		return logMHI
+	else:
+		print('Incorrect input')
+
 
 
 def locate_peaks(spectrum):
@@ -587,6 +713,26 @@ def integrated_SN(Sint, width, rms, Vsm):
 	SN = ((Sint / width) / rms) * np.sqrt(0.5e0 * width / Vsm)
 	return SN
 
+def peak_SN(Peak, rms):
+	"""
+	Peak / rms signal to noise ratio  (gross)
+
+    Parameters
+    ----------
+    Prak : float 	[mJy]
+		Peak spectral flux	
+    rms : float 	[mJy]
+		RMS measurement noise 	
+
+    Returns
+    -------
+	SN : float
+		Signal to noise of spectrum
+	"""
+
+	SN = Peak / rms
+	return SN
+
 
 def measure_radial_profile():
 	incl  = np.cos(params[0] * np.pi / 180.e0)							#measure radial HI distribution
@@ -617,7 +763,7 @@ def measure_radial_profile():
 
 
 
-def rms_from_SN(SN, Sint, width, Vsm):
+def rms_from_integrated_SN(SN, Sint, width, Vsm):
 	"""
 	Convert a signal to noise to an RMS value
 
@@ -640,6 +786,27 @@ def rms_from_SN(SN, Sint, width, Vsm):
 
 	rms = ((Sint / width) / SN) * np.sqrt(0.5e0 * width / Vsm)
 	return rms
+
+def rms_from_peak_SN(SN, Peak):
+	"""
+	Convert a signal to noise to an RMS value
+
+    Parameters
+    ----------
+    SN : float 
+    	Signal to noise of spectrum
+    Peak : float 	[mJy]
+		Peak flux of spectrum
+
+    Returns
+    -------
+    rms : float 	[mJy]
+		RMS measurement noise
+	"""
+
+	rms = Peak / SN
+	return rms
+
 
 def width_from_SN(SN, Sint, rms, Vsm):
 	"""
@@ -706,7 +873,7 @@ def Gaussian_width_from_SNpeak(SN, Sint, rms):
 	return sigma
 
 
-def Gaussian_PDF(vel, mu, sigma, alpha = 0):
+def Gaussian_PDF(vel, mu, sigma, alpha=0):
 	"""
 	Return the probability density of a Gaussian distribution 
 

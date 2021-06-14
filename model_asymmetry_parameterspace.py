@@ -27,7 +27,9 @@ import glob
 from mpi4py import MPI
 from astropy.table import Table
 from scipy.stats import norm, mode
-from functions import *
+import functions as func
+
+rng = np.random.default_rng()
 
 def generate(args):	
 	"""
@@ -56,75 +58,70 @@ def generate(args):
 
 	print('Generating specta with N = ', nproc, ' processors, this is proc ', rank)
 
-	dim = 2000
-	incl = args.incl
-	model= 'FE'
-	MHI = 1.e10
-	Vdisp = args.Vdisp
-	dist = 150.e0
+	params = {'dim':1000, 'incl':args.incl,'MHI':1.e10, 
+				'Vres':2.e0, 'RMS':0, 'Vsm':args.Vsm, 'dist': 150.e0}
+			
+	
 	rms_temp = -1
-	Vres = 2.e0
-	Vsm = args.Vsm
-	if Vsm == 0:
-		Vsm = Vres
-	if len(args.HI) == 2:
-		HI_asym = 0
-		args.HI.extend(args.HI)
-	elif len(args.HI) == 4:
-		HI_asym = 1
-	else:
-		print('Incorrect number of HI distribution arguments specified.')
-		print('There should be 2 (symmetric) or 4 (asymmetric)')
-		exit()
-	if len(args.RC) == 3:
-		RC_asym = 0
-		args.RC.extend(args.RC)
-	elif len(args.RC) == 6:
-		RC_asym = 1
-	else:
-		print('Incorrect number of rotation curve arguments specified.')
-		print('There should be 3 (symmetric) or 6 (asymmetric)')
-		exit()
-	Vsmflag = 0
+	
+	
+	if params['Vsm'] == 0:
+		params['Vsm'] = params['Vres']
 
-	mjy_conv = 1.e3 / (2.356e5  * (dist ** 2.e0))
-	Sint = mjy_conv * MHI 
 	if rank == 0:
+		if not os.path.isdir(args.basedir):
+			os.mkdir(args.basedir)
+			os.mkdir(f'{args.basedir}models')
+
+
 		if args.PN:
 			SN_type = 'PN'
 		elif args.AA:
 			SN_type = 'AA'
 
-		if args.GS[0] != 0:
+		if args.GS:
 			base = 'gaussian'
-		elif args.TH[0] != 0:
+			params['HImod'] = base
+			if args.HI == [1,1.65]:
+				params['HIparams'] = [0,90]				#default model desired
+			else:
+				params['HIparams'] = args.HI
+		elif args.TH:
 			base = 'tophat'
+			params['HImod'] = base
+			if args.HI == [1,1.65]:
+				params['HIparams'] = 300				#default model desired
+			else:
+				params['HIparams'] = args.HI
 		else:
 			base = 'doublehorn'
+			params['HImod'] = 'FE'
+			params['HIparams'] = args.HI
+			params['RCparams'] = args.RC
+			params['Vdisp'] = args.Vdisp,
+
 
 		if args.width:
 			model_type = 'width'
-			Vmin = -1500.e0
-			Vmax = 1500.e0
+			params['Vlim'] = 1500.e0
 
 		elif args.Nch:
 			model_type = 'Nch'
-			Vmin = -500.e0
-			Vmax = 500.e0
+			params['Vlim'] = 500.e0
 
 		elif args.rms:
 			model_type = 'rms'
-			Vmin = -800.e0
-			Vmax = 800.e0
+			params['Vlim'] = 800.e0
+	
+	comm.barrier()
 
 	if rank != 0:
+		basedir = None
 		base = None
-		Vmin = None
-		Vmax = None
-
+		params = None
+	basedir = comm.bcast(args.basedir, root=0)
 	base = comm.bcast(base, root = 0)
-	Vmin = comm.bcast(Vmin, root = 0)
-	Vmax = comm.bcast(Vmax, root = 0)
+	params = comm.bcast(params, root = 0)
 
 
 	if args.Nch:
@@ -357,104 +354,83 @@ def generate(args):
 
 	elif args.rms:
 		if rank == 0:
-			if args.TH[0] != 0:
-				input_params = [incl, model,
-							HI_asym, MHI, 0, 0, -1, -1, 0, 0, -1, -1,
-							RC_asym, 0, 0, 0, 0, 0, 0,
-							Vdisp, dist, rms_temp, Vmin, Vmax, Vres, Vsm]	
-
-				vel_bins = np.arange(Vmin,Vmax , Vres)
-				base_spectrum = Tophat(vel_bins, args.TH[0])
-				base_spectrum = base_spectrum * (Sint / (np.nansum(base_spectrum) * Vres))
+			base_params = params.copy()
+			base_params['Vsm'] = 0
+			maps, spec = func.mock_global_HI_spectrum(base_params)
+			vel_bins = spec[:,0]
+			base_spectrum = spec[:,1]
+			print(params)
+			noiseless_spectrum = func.smooth_spectrum(vel_bins, base_spectrum, params)
 				
-			elif args.GS[0] != 0:
-				input_params = [incl, model,
-					HI_asym, MHI, 0, 0, -1, -1, 0, 0, -1, -1,
-					RC_asym, 0, 0, 0, 0, 0, 0,
-					Vdisp, dist, rms_temp, Vmin, Vmax, Vres, Vsm]	
-
-				vel_bins = np.arange(Vmin, Vmax, Vres)
-				base_spectrum = Gaussian_PDF(vel_bins, 0, args.GS[0], args.GS[1])
-				
-				base_spectrum = base_spectrum * (Sint / (np.nansum(base_spectrum) * Vres))
-
+			if params['HImod'] == 'gaussian' or params['HImod'] == 'tophat':
+				Peaks = [np.nanmax(noiseless_spectrum), np.nanmax(noiseless_spectrum)]
 			else:
-				input_params = [incl, model,
-								HI_asym, MHI, args.HI[0], args.HI[1], -1, -1 , args.HI[2], args.HI[3], -1, -1,
-								RC_asym, args.RC[0], args.RC[1], args.RC[2], args.RC[3], args.RC[4], args.RC[5],
-								Vdisp, dist, rms_temp, Vmin, Vmax, Vres, Vsm]		
-				radius, costheta, R_opt = create_arrays(dim, input_params)
-				obs_mom0, rad1d, input_HI = create_mom0(radius, costheta, input_params, R_opt)
-				obs_mom1, input_RC  = create_mom1(radius, costheta, rad1d, input_params, R_opt)
-				vel_bins, base_spectrum, Sint = hi_spectra(obs_mom0, obs_mom1, input_params)
+				Peaklocs = func.locate_peaks(noiseless_spectrum)
+				Peaks = noiseless_spectrum[Peaklocs]
+			width_locs = func.locate_width(noiseless_spectrum, Peaks, 0.2e0)
+			width = (width_locs[1] - width_locs[0]) * params['Vres']
+			Sint_noiseless, Afr_noiseless = func.areal_asymmetry(noiseless_spectrum, width_locs, params['Vres'])
 
-			spectrum = smooth_spectra(vel_bins, base_spectrum, input_params)
-			if len(np.where(spectrum ==  np.nanmax(spectrum))[0]) > 3:
-				Peaks = [np.nanmax(spectrum), np.nanmax(spectrum)]
-			else:
-				Peaklocs = locate_peaks(spectrum)
-				Peaks = spectrum[Peaklocs]
-			width_full = locate_width(spectrum, Peaks, 0.2e0)
-			width = (width_full[1] - width_full[0]) * Vres
-			Sint, Afr = areal_asymmetry(spectrum, width_full, Vres)
+			print('Noiseless Afr = {Afr_noiseless:.2f}')
 
 			SN_range = np.arange(args.SN_range[0], args.SN_range[1] + args.SN_range[2], args.SN_range[2])
 			if args.PN:
-				RMS_sm = np.nanmax(spectrum) / SN_range
+				RMS_sm = func.rms_from_peak_SN(SN_range, np.nanmax(noiseless_spectrum))
 			elif args.AA:
-				RMS_sm = rms_from_StN(SN_range, Sint, width, Vsm)
-			RMS_input = RMS_sm * np.sqrt(int(Vsm / Vres))
+				RMS_sm = func.rms_from_integrated_SN(SN_range, Sint_noiseless, width, params['Vsm'])
+			RMS_input = RMS_sm * np.sqrt(int(params['Vsm'] / params['Vres']))
 
-			model_directory = './{base}{St}{option}_Afr{Afr:.2f}_{mt}/'.format(
-				base = base, Afr = Afr, St = SN_type, mt = model_type, option = args.option)
-			if len(glob.glob(model_directory)) == 0:
+			model_directory = f'{args.basedir}models/{args.option}{base}{SN_type}Vsm{params["Vsm"]}_Afr{Afr_noiseless:.2f}_{model_type}/'
+			spectra_directory = f'{model_directory}spectra/'
+			if not os.path.isdir(model_directory):
 				os.mkdir(model_directory)
+				os.mkdir(spectra_directory)
+				os.mkdir(f'{model_directory}measurements/')
+				os.mkdir(f'{model_directory}statistics/')
 
 		if rank != 0:
-			model_directory = None
-			RMS_input = None
-			base_spectrum = None
-			spectrum = None
-			vel_bins = None
-			input_params = None
+			spectra_directory = None
 			SN_range = None
+			RMS_input = None
 			RMS_sm = None
-		model_directory = comm.bcast(model_directory, root = 0)
+			vel_bins = None
+			base_spectrum = None
+			noiseless_spectrum = None
+			params = None
+		spectra_directory = comm.bcast(spectra_directory, root = 0)
 		SN_range = comm.bcast(SN_range, root = 0)
 		RMS_input = comm.bcast(RMS_input, root = 0)
-		base_spectrum = comm.bcast(base_spectrum, root = 0)
-		spectrum = comm.bcast(spectrum, root = 0)
-		vel_bins = comm.bcast(vel_bins, root = 0)
-		input_params = comm.bcast(input_params, root = 0)
 		RMS_sm = comm.bcast(RMS_sm, root = 0)
+		vel_bins = comm.bcast(vel_bins, root = 0)
+		base_spectrum = comm.bcast(base_spectrum, root = 0)
+		noiseless_spectrum = comm.bcast(noiseless_spectrum, root = 0)
+		params = comm.bcast(params, root = 0)
 
 		N_SNvals = len(RMS_input)
-		spectra = np.zeros([len(spectrum), args.Nmodels[0] + 2])
+		spectra = np.zeros([len(base_spectrum), args.Nmodels[0] + 2])
 		spectra[:,0] = vel_bins
-		spectra[:,1] = spectrum
-		for ii in range(rank * int(N_SNvals / nproc),(rank + 1) * int(N_SNvals / nproc)):
+		spectra[:,1] = noiseless_spectrum
+
+		proc_model_numbers = range(rank * int(N_SNvals/nproc), (rank+1) * int(N_SNvals/nproc))
+
+		for ii in proc_model_numbers:
 			print('proc', rank, 'Generating realisations for SN = ', int(SN_range[ii]))
-			input_params[21] = RMS_input[ii]
+			params['RMS'] = RMS_input[ii]
 			for n in range(args.Nmodels[0]):
-				obs_spectrum = add_noise(base_spectrum, input_params)
-				obs_spectrum = smooth_spectra(vel_bins, obs_spectrum, input_params)
+				obs_spectrum = func.add_noise(base_spectrum, params)
+				obs_spectrum = func.smooth_spectrum(vel_bins, obs_spectrum, params)
 				spectra[:, n + 2] = obs_spectrum
 
-			filename = '{md}SN{SN}_spectra.dat'.format( 
-				md = model_directory, SN = int(SN_range[ii]))
-			
-			if args.TH[0] != 0:
-				header = 'Tophat = {width}\nrms = {rms:0.5f}\nVsm = {Vsm}\n'.format(
-						width = args.TH[0], rms = RMS_sm[ii], Vsm = Vsm)
-			elif args.GS[0] != 0:
-				header = 'Gaussian = {sigma} {alpha}\nrms = {rms:0.5f}\nVsm = {Vsm}\n'.format(
-						sigma = args.GS[0], alpha = args.GS[1] , rms = RMS_sm[ii], Vsm = Vsm)
+			filename = f"{spectra_directory}SN{int(SN_range[ii])}_spectra.dat"
+			if params['HImod'] == "tophat":
+				head1 = f"Tophat {params['HIparams']}\n"
+			elif params['HImod'] == "gaussian":
+				head1 = f"Gaussian {params['HIparams']}\n"
 			else:
-				header = 'HI = {model}, {H1}, {H2}, {H3}, {H4} \nRC = {R1}, {R2}, {R3}, {R4}, {R5}, {R6} \n' \
-						'rms = {rms:0.5f}\nVsm = {Vsm}\n'.format(
-					model = model, H1=args.HI[0], H2 = args.HI[1], H3=args.HI[2], H4 = args.HI[3], 
-					R1 = args.RC[0], R2 = args.RC[1], R3 = args.RC[2], R4 = args.RC[3], 
-					R5 = args.RC[4], R6 = args.RC[5], rms = RMS_sm[ii], Vsm = Vsm)
+				head1 = f"{params['HImod']} {params['HIparams']}\n{params['RCparams']} \n"
+			head2 = f"rms {RMS_sm[ii]:0.5f}\nVsm {params['Vsm']}\n"	
+			header = f'{head1}{head2}'		
+			
 			np.savetxt(filename, spectra, header = header,fmt = "%.4e")
 
 def measure(args):
@@ -477,28 +453,12 @@ def measure(args):
 	comm = MPI.COMM_WORLD
 	rank = comm.Get_rank()
 	nproc = comm.Get_size()
-
+	model_type = 'rms'				#temp set to only rms models
 	if rank == 0:
-		if args.dir[-1]=='/':
-			model_code = args.dir.split('/')[-2]
-		else:
-			model_code = args.dir.split('/')[-1]
-			args.dir = '{dir}/'.format(dir=args.dir)
+		if args.dir[-1] != '/':
+			args.dir = f'{args.dir}/'
 
-		if 'AA' in args.dir:
-			SN_type = 'AA'
-		elif 'PN' in args.dir:
-			SN_type = 'PN'
-		base = model_code.split(SN_type)[0]
-
-		if 'Nch' in args.dir:
-			model_type = 'Nch'
-		elif 'width' in args.dir:
-			model_type = 'width'
-		elif 'rms' in args.dir:
-			model_type = 'rms'
-
-		file_list = glob.glob(f'{args.dir}*_spectra.dat')
+		file_list = glob.glob(f'{args.dir}spectra/*_spectra.dat')
 
 		if model_type == 'Nch':
 
@@ -529,15 +489,10 @@ def measure(args):
 
 	else:
 		Nfiles = None
-		base = None
-		SN_type = None
 		file_list = None
-		model_type = None
 	Nfiles = comm.bcast(Nfiles, root = 0)
-	base  = comm.bcast(base, root = 0)
-	SN_type = comm.bcast(SN_type, root = 0)
 	file_list = comm.bcast(file_list, root = 0)
-	model_type = comm.bcast(model_type, root = 0)
+
 
 	if model_type == 'Nch':
 		loop_range = range(rank, Nfiles ,nproc)
@@ -547,122 +502,9 @@ def measure(args):
 	for ff in loop_range:
 		file = file_list[ff]
 		print('proc', rank, 'measuring ', file)
-		f = open(file)
-		for line in f:
-			split = line.split(' ')
-			if split[1] == 'rms':
-				rms = float(split[3])
-			if split[1] == 'Vsm':
-				Vsm = float(split[3])
-				break
-		f.close()
-
-		spectra = np.loadtxt(file,ndmin=2)
-		print('file loaded')
-		vel_bins = spectra[:,0]
-		spectrum = spectra[:,1]
-		Vres = np.abs(vel_bins[1] - vel_bins[0])
-		if Vsm == 0:
-			Vsm = Vres
-		if base != 'doublehorn':
-			Peaks = [np.nanmax(spectrum), np.nanmax(spectrum)]
-		else:
-			Peaklocs = locate_peaks(spectrum)
-			Peaks = spectrum[Peaklocs]
-
-		width_rms = locate_width(spectrum,[1,1],rms)
-		width_2rms = locate_width(spectrum,[1,1],2.e0 * rms)
-		width_20 = locate_width(spectrum, Peaks, 0.2e0)
-		width_50 = locate_width(spectrum, Peaks, 0.5e0)
-
-		wrms = (width_rms[1] - width_rms[0]) * Vres
-		w2rms = (width_2rms[1] - width_2rms[0]) * Vres
-		w20 = (width_20[1] - width_20[0]) * Vres
-		w50 = (width_50[1] - width_50[0]) * Vres
-
-
-		Sint_noiseless_rms, Afr_noiseless_rms = areal_asymmetry(spectrum, width_rms, Vres)
-		Sint_noiseless_2rms, Afr_noiseless_2rms = areal_asymmetry(spectrum, width_2rms, Vres)
-		Sint_noiseless_w20, Afr_noiseless_w20 = areal_asymmetry(spectrum, width_20, Vres)
-		Sint_noiseless_w50, Afr_noiseless_w50 = areal_asymmetry(spectrum, width_50, Vres)
-	
-		measurements = []
-		measurements_noiseless = [Sint_noiseless_rms, -1, Afr_noiseless_rms,
-								Sint_noiseless_2rms, -1, Afr_noiseless_2rms,
-								Sint_noiseless_w20, -1, Afr_noiseless_w20,
-								-1, -1, -1,
-								Sint_noiseless_w50, -1, Afr_noiseless_w50,
-								-1, -1, -1
-								]
-		measurements.append(measurements_noiseless)
-		for run in range(len(spectra[0]) - 2):
-			obs_spectrum = spectra[:, run + 2]
-
-			Sint_rms, Afr_rms = areal_asymmetry(obs_spectrum, width_rms, Vres)
-			Sint_2rms, Afr_2rms = areal_asymmetry(obs_spectrum, width_2rms, Vres)
-			Sint_w20, Afr_w20 = areal_asymmetry(obs_spectrum, width_20, Vres)
-			Sint_w50, Afr_w50 = areal_asymmetry(obs_spectrum, width_50, Vres)
-			
-			if SN_type == 'PN':
-				SN_rms = np.nanmax(obs_spectrum) / rms
-				SN_2rms = np.nanmax(obs_spectrum) / rms
-				SN_w20 = np.nanmax(obs_spectrum) / rms
-				SN_w50 = np.nanmax(obs_spectrum) / rms
-			elif SN_type == 'AA':
-				SN_rms = StN(Sint_rms, wrms, rms, Vsm)
-				SN_2rms = StN(Sint_2rms, w2rms, rms, Vsm)
-				SN_w20 = StN(Sint_w20, w20, rms, Vsm)
-				SN_w50 = StN(Sint_w50, w50, rms, Vsm)
-
-			spec_max = np.nanmax(spectrum)
-			if base != 'doublehorn':
-				Peaks_obs = [np.nanmax(obs_spectrum) - rms,np.nanmax(obs_spectrum) - rms]
-			else:
-				tol = int(30./Vres)						#select the maximum channel around the known peaks
-				Peaks_obs = [np.nanmax(obs_spectrum[Peaklocs[0] - tol:Peaklocs[0] + tol]) - rms,
-						np.nanmax(obs_spectrum[Peaklocs[1] - tol:Peaklocs[1] + tol]) - rms]
-
-			width_20_obs = locate_width(spectrum, Peaks_obs, 0.2e0)
-			width_50_obs = locate_width(spectrum, Peaks_obs, 0.5e0)
-			if all(w > 0 for w in width_20_obs) and all(i == False for i in np.isinf(width_20_obs)):
-				Sint_w20_obs, Afr_w20_obs = areal_asymmetry(obs_spectrum, width_20_obs, Vres)
-				w20_obs = (width_20_obs[1] - width_20_obs[0]) * Vres
-				if SN_type == 'AA':
-					SN_w20_obs = StN(Sint_w20_obs, w20_obs, rms, Vsm)
-				elif SN_type == 'PN':
-					SN_w20_obs = np.nanmax(obs_spectrum) / rms
-			else:
-				Afr_w20_obs = -1
-				SN_w20_obs = -1
-			if all(w > 0 for w in width_50_obs) and all(i == False for i in np.isinf(width_50_obs)):
-				Sint_w50_obs, Afr_w50_obs = areal_asymmetry(obs_spectrum, width_50_obs, Vres)
-				w50_obs = (width_50_obs[1] - width_50_obs[0]) * Vres
-				if SN_type == 'AA':
-					SN_w50_obs = StN(Sint_w50_obs, w50_obs, rms, Vsm)
-				elif SN_type == 'PN':
-					SN_w50_obs = np.nanmax(spectrum) / rms
-			else:
-				Afr_w50_obs = -1
-				SN_w50_obs = -1
-
-			spectrum_measurements = [
-				Sint_rms, SN_rms, Afr_rms,
-				Sint_2rms, SN_2rms, Afr_2rms,
-				Sint_w20, SN_w20, Afr_w20,
-				Sint_w20_obs, SN_w20_obs, Afr_w20_obs,
-				Sint_w50, SN_w50, Afr_w50,
-				Sint_w50_obs, SN_w50_obs, Afr_w50_obs
-				]
-
-			measurements.append(spectrum_measurements)
-			# measurements[run + 1,:] = [Sint_w20, SN_w20, SN_w50, SN_w20_obs,
-			# 	SN_w50_obs, Afr_w20, Afr_w50, Afr_w20_obs, Afr_w50_obs]
-		measurements = np.array(measurements)
-		base = file.split('_spectra.dat')[0]
-		filename = f'{base}_measured.dat'
-		header = f'rms = {rms:0.5f}\nVsm = {Vsm}\n'
-		np.savetxt(filename, measurements, header=header, fmt="%.4e")
-
+		
+		measure_SN_Afr(file,obs_peaks=False)
+		
 def statistics(args):
 	"""
 	Calculates statistics and density of model spectra in bins of S/N and asymmetry
@@ -685,245 +527,24 @@ def statistics(args):
         	Rows: bins of asymmetry
         	Columns: bins of S/N
     """
-	if args.dir[-1]=='/':
-		model_code = args.dir.split('/')[-2]
-	else:
-		model_code = args.dir.split('/')[-1]
-		args.dir = '{dir}/'.format(dir = args.dir)
+	if args.dir[-1] != '/':
+		args.dir = f'{args.dir}/'
 
-	if 'AA' in args.dir:
-		SN_type = 'AA'
-	elif 'PN' in args.dir:
-		SN_type = 'PN'
+	# if 'AA' in args.dir:
+	# 	SN_type = 'AA'
+	# elif 'PN' in args.dir:
+	# 	SN_type = 'PN'
 
-	if 'Nch' in args.dir:
-		model_type = 'Nch'
-	elif 'width' in args.dir:
-		model_type = 'width'
-	elif 'rms' in args.dir:
-		model_type = 'rms'
-	file_list = glob.glob('{dir}*_measured.dat'.format(dir = args.dir))
+	# if 'Nch' in args.dir:
+	# 	model_type = 'Nch'
+	# elif 'width' in args.dir:
+	# 	model_type = 'width'
+	# elif 'rms' in args.dir:
+	# 	model_type = 'rms'
 
-	if model_type == 'Nch':
-
-		Nch_range = np.array([])
-		Vres_range = np.array([])
-
-		for file in file_list:
-			f = open(file)
-			for line in f:
-				split = line.split(' ')
-				if split[1] == 'rms':
-					rms = float(split[3])
-				if split[1] == 'Vsm':
-					Vsm = float(split[3])
-					break
-			f.close()
-			Vres_range = np.append(Vres_range, Vsm)
-			Nch = file.split('Nch')[-1].split('_')[0]
-			Nch_range = np.append(Nch_range,np.float(Nch))
-		Nch_sort = np.argsort(Nch_range)
-		Nch_range = Nch_range[Nch_sort]
-		Vres_range = Vres_range[Nch_sort]
-		file_list = np.array(file_list)[Nch_sort]
-
-		# Sint_rms = np.array([])
-		# SN_rms = np.array([])
-		# Afr_rms = np.array([])
-		# Sint_2rms = np.array([])
-		# SN_2rms = np.array([])
-		# Afr_2rms = np.array([])
-		# Sint_w20 = np.array([])
-		# SN_w20 = np.array([])
-		# Afr_w20 = np.array([])
-		# Sint_w20_obs = np.array([])
-		# SN_w20_obs = np.array([])
-		# Afr_w20_obs = np.array([])
-		# Sint_w50 = np.array([])
-		# SN_w50 = np.array([])
-		# Afr_w50 = np.array([])
-		# Sint_w50_obs = np.array([])
-		# SN_w50_obs = np.array([])
-		# Afr_w50_obs = np.array([])
-
-		names = ['rms', '2rms', 'w20', 'w20_obs', 'w50', 'w50_obs']
-
-		column_names = ['Nch', 'Vres']
-		formats = {'Nch':'4.2f', 'Vres': '3.4f'}
-
-		dP = 5
-		percentile_vals = np.arange(5, 95 + dP, dP)
-		percentiles = np.zeros(len(percentile_vals) + 1)
-
-		# names = ['w20', 'w50', 'w20_obs', 'w50_obs']
-		for name in names:
-			column_names.extend([f'avg_SN_{name}'])						
-			formats[f'avg_SN_{name}'] = '4.2f'
-
-			for pp in range(len(percentile_vals)):
-				value = int(percentile_vals[pp])
-				column_names.extend([f'P{value}_{name}'])
-				formats[f'P{value}_{name}'] = '.5f'
-		
-		Afr_statistics = np.zeros([len(file_list), 2 + len(percentiles) * len(names)])
-		Afr_statistics[:,0] = Nch_range
-		Afr_statistics[:,1] = Vres_range
-
-		for ff in range(len(file_list)):
-			measurements = np.genfromtxt(file_list[ff])
-			measurements = measurements[1::,:]
-			Sint_rms = measurements[:, 0]
-			SN_rms = measurements[:, 1]
-			Afr_rms = measurements[:, 2]
-
-			Sint_2rms = measurements[:, 3]
-			SN_2rms = measurements[:, 4]
-			Afr_2rms = measurements[:, 5]
-			
-			Sint_w20 = measurements[:, 6]
-			SN_w20 = measurements[:, 7]
-			Afr_w20 = measurements[:, 8]
+	statistics_SN_Afr(args.dir)
 
 
-			Sint_w20_obs = measurements[:, 9]
-			SN_w20_obs = measurements[:, 10]
-			Afr_w20_obs = measurements[:, 11]
-
-			Sint_w50 = measurements[:, 12]
-			SN_w50 = measurements[:, 13]
-			Afr_w50 = measurements[:, 14]
-			
-			Sint_w50_obs = measurements[:, 15]
-			SN_w50_obs = measurements[:, 16]
-			Afr_w50_obs = measurements[:, 17]
-
-			SN = [SN_rms, SN_2rms, SN_w20, SN_w20_obs, SN_w50, SN_w50_obs]
-			Afr = [Afr_rms, Afr_2rms, Afr_w20, Afr_w20_obs, Afr_w50, Afr_w50_obs]
-
-			for ss in range(len(SN)):
-				percentiles[0] = np.mean(SN[ss])		
-		
-				for pp in range(len(percentile_vals)):
-					percentiles[pp + 1] = np.percentile(Afr[ss], percentile_vals[pp])
-		
-				Afr_statistics[ff, (ss * len(percentiles) + 2):
-								((ss + 1) * len(percentiles) + 2)] = percentiles
-
-		table = Table(rows = Afr_statistics, names = column_names)
-		stats_filename = f'{args.dir}statistics.dat'
-		table.write(stats_filename, formats = formats, format = 'ascii', overwrite = True)
-
-	else:	
-		Sint_rms = np.array([])
-		SN_rms = np.array([])
-		Afr_rms = np.array([])
-		Sint_2rms = np.array([])
-		SN_2rms = np.array([])
-		Afr_2rms = np.array([])
-		Sint_w20 = np.array([])
-		SN_w20 = np.array([])
-		Afr_w20 = np.array([])
-		Sint_w20_obs = np.array([])
-		SN_w20_obs = np.array([])
-		Afr_w20_obs = np.array([])
-		Sint_w50 = np.array([])
-		SN_w50 = np.array([])
-		Afr_w50 = np.array([])
-		Sint_w50_obs = np.array([])
-		SN_w50_obs = np.array([])
-		Afr_w50_obs = np.array([])
-
-		for file in file_list:
-			measurements = np.genfromtxt(file)
-			measurements = measurements[1::,:]
-			Sint_rms = np.append(Sint_rms,measurements[:, 0])
-			SN_rms = np.append(SN_rms,measurements[:, 1])
-			Afr_rms = np.append(Afr_rms,measurements[:, 2])
-
-			Sint_2rms = np.append(Sint_2rms,measurements[:, 3])
-			SN_2rms = np.append(SN_2rms,measurements[:, 4])
-			Afr_2rms = np.append(Afr_2rms,measurements[:, 5])
-			
-			Sint_w20 = np.append(Sint_w20,measurements[:, 6])
-			SN_w20 = np.append(SN_w20,measurements[:, 7])
-			Afr_w20 = np.append(Afr_w20,measurements[:, 8])
-
-			Sint_w20_obs = np.append(Sint_w20_obs,measurements[:, 9])
-			SN_w20_obs = np.append(SN_w20_obs,measurements[:, 10])
-			Afr_w20_obs = np.append(Afr_w20_obs,measurements[:, 11])
-
-			Sint_w50 = np.append(Sint_w50,measurements[:, 12])
-			SN_w50 = np.append(SN_w50,measurements[:, 13])
-			Afr_w50 = np.append(Afr_w50,measurements[:, 14])
-			
-			Sint_w50_obs = np.append(Sint_w50_obs,measurements[:, 15])
-			SN_w50_obs = np.append(SN_w50_obs,measurements[:, 16])
-			Afr_w50_obs = np.append(Afr_w50_obsmeasurements[:, 17])
-
-		SN_bins = np.arange(int(np.nanmax([5, np.nanmin(SN_w20)])), 
-				int(np.nanmax(SN_w20) * 0.1) * 10, 4)
-		Afr_densitybins = np.arange(1., 3, 0.05)
-		Afr_densityplot = np.zeros([len(Afr_densitybins) - 1, len(SN_bins) - 1])
-
-
-		dP = 5
-		percentile_vals = np.arange(5, 95 + dP, dP)
-		percentiles = np.zeros(len(percentile_vals) + 2)
-
-		names = ['rms', '2rms', 'w20', 'w20_obs', 'w50', 'w50_obs']
-		SN = [SN_rms, SN_2rms, SN_w20, SN_w20_obs, SN_w50, SN_w50_obs]
-		Afr = [Afr_rms, Afr_2rms, Afr_w20, Afr_w20_obs, Afr_w50, Afr_w50_obs]
-
-		Afr_statistics = np.zeros([len(SN_bins) - 1, 1 + len(percentiles) * len(SN)])
-		Afr_statistics[:,0] = SN_bins[0:-1]
-
-		column_names = ['SN_bin']
-		formats = {'SN_bin':'4.2f'}
-
-		for mm in range(len(SN)):
-			SN_vals = SN[mm]
-			Afr_vals = Afr[mm]
-
-			column_names.extend([f'avg_SN_{names[mm]}',
-								f'mode_Afr_{names[mm]}'])
-			formats[f'avg_SN_{names[mm]}'] = '4.2f'
-			formats[f'mode_Afr_{names[mm]}'] = '4.2f'
-
-			for pp in range(len(percentile_vals)):
-				value = int(percentile_values[pp])
-				column_names.extend([f'P{value}_{names[mm]}'])
-				formats[f'P{value}_{names[mm]}'] = '.5f'
-
-			for ii in range(len(SN_bins) - 1):
-				SN_low = SN_bins[ii]
-				SN_high = SN_bins[ii + 1]
-
-				inbin_SN = SN_vals[(SN_vals >= SN_low) & (SN_vals < SN_high)]
-				inbin_Afr = Afr_vals[(SN_vals >= SN_low) & (SN_vals < SN_high)]
-
-				if len(inbin_SN) != 0:
-					if mm == 1:
-						for jj in range(len(Afr_densitybins) - 1):
-							Afr_low = Afr_densitybins[jj]
-							Afr_high = Afr_densitybins[jj + 1]
-							incell = Afr_vals[(Afr_vals >= Afr_low) & (Afr_vals < Afr_high)]
-							Afr_densityplot[jj,ii] = float(len(incell)) / float(len(inbin_SN))
-				
-					percentiles[0] = np.mean(inbin_SN)		
-					percentiles[1] = mode(inbin_Afr)[0][0]
-				
-					for pp in range(len(percentile_vals)):
-						percentiles[pp + 2] = np.percentile(inbin_Afr,percentile_vals[pp])
-				
-					Afr_statistics[ii, (mm * len(percentiles) + 1):
-										((mm + 1) * len(percentiles) + 1)] = percentiles
-
-		table = Table(rows = Afr_statistics, names = column_names)
-		stats_filename = f'{args.dir}statistics.dat'
-		table.write(stats_filename, formats = formats, format = 'ascii', overwrite = True)
-		
-		# density_filename = f'{args.dir}densityplot.dat'
-		# np.savetxt(density_filename, Afr_densityplot)
 
 def plot_spectrum(args):
 	"""
@@ -1143,10 +764,422 @@ def density_plot(args):
 	else:	
 		plt.show()
 
+
+
+def get_SN_Afr(SN, num = None, model_type = 'doublehorn',Afr = 1):
+
+	model_directory = '/media/data/models/HI_spectrum_toy_model/models/{model_type}AAVsm10.0_Afr{Afr:.2f}_rms/measurements/'
+
+	measurements_file = f'{model_directory}{int(round(SN))}_SN_Afr_measured.dat'
+
+	data = np.genfromtxt(measurements_file)
+	measurements = data[1::,:]
+	Nrows = len(measurements)
+
+	if num == None:
+		num = rng.integers(Nrows)
+
+	SN = measurements[num,7]	
+	Afr = measurements[num,8]	
+
+	return SN, Afr
+
 ##########################################################################################
 #	Model generation functions
 ##########################################################################################
 #	Now in functions.py
+
+
+##########################################################################################
+#	Different measurement routines
+##########################################################################################
+
+def measure_SN_Afr(file, obs_peaks = False):
+	model_code = file.split('/')[-3]
+	model_SN = file.split('_spectra.dat')[0].split('/')[-1]
+	model_directory = file.split('spectra/')[0]
+
+	f = open(file)
+	for line in f:
+		split = line.split(' ')
+		if split[1] == 'rms':
+			rms = float(split[2])
+		if split[1] == 'Vsm':
+			Vsm = float(split[2])
+			break
+	f.close()
+
+
+	# if 'AA' in model_code:
+	# 	SN_type = 'AA'
+	# elif 'PN' in model_code:
+	# 	SN_type = 'PN'
+	# base = model_code.split(SN_type)[0]
+
+	# if 'Nch' in args.dir:
+	# 	model_type = 'Nch'
+	# elif 'width' in args.dir:
+	# 	model_type = 'width'
+	# elif 'rms' in args.dir:
+	# 	model_type = 'rms'
+
+
+	data = np.loadtxt(file,ndmin=2)
+	print('file loaded')
+	
+	vel_bins = data[:,0]
+	noiseless_spectrum = data[:,1]
+	spectra = data[:,2::]
+	Nspectra = len(spectra[0,:])
+	Vres = np.abs(np.diff(vel_bins)[0])
+	if Vsm == 0:
+		Vsm = Vres
+	
+	if 'doublehorn' not in model_code:
+		Peaks = [np.nanmax(noiseless_spectrum), np.nanmax(noiseless_spectrum)]
+		if 2.e0*rms > Peaks[0]:
+			print(f'{model_SN} noise level too high for RMS measurement limits')
+			return
+
+	else:
+		Peaklocs = func.locate_peaks(noiseless_spectrum)
+		Peaks = noiseless_spectrum[Peaklocs]
+
+	width_rms = func.locate_width(noiseless_spectrum,[1,1],rms)
+	width_2rms = func.locate_width(noiseless_spectrum,[1,1],2.e0 * rms)
+	width_20 = func.locate_width(noiseless_spectrum, Peaks, 0.2e0)
+	width_50 = func.locate_width(noiseless_spectrum, Peaks, 0.5e0)
+
+	wrms = (width_rms[1] - width_rms[0]) * Vres
+	w2rms = (width_2rms[1] - width_2rms[0]) * Vres
+	w20 = (width_20[1] - width_20[0]) * Vres
+	w50 = (width_50[1] - width_50[0]) * Vres
+
+
+	Sint_noiseless_rms, Afr_noiseless_rms = func.areal_asymmetry(noiseless_spectrum, width_rms, Vres)
+	Sint_noiseless_2rms, Afr_noiseless_2rms = func.areal_asymmetry(noiseless_spectrum, width_2rms, Vres)
+	Sint_noiseless_w20, Afr_noiseless_w20 = func.areal_asymmetry(noiseless_spectrum, width_20, Vres)
+	Sint_noiseless_w50, Afr_noiseless_w50 = func.areal_asymmetry(noiseless_spectrum, width_50, Vres)
+
+	if obs_peaks:
+		Nmeasure = 18
+		measurements_noiseless = [Sint_noiseless_rms, -1, Afr_noiseless_rms,
+							Sint_noiseless_2rms, -1, Afr_noiseless_2rms,
+							Sint_noiseless_w20, -1, Afr_noiseless_w20,
+							Sint_noiseless_w50, -1, Afr_noiseless_w50,
+							-1, -1, -1,
+							-1, -1, -1]
+	else:
+		Nmeasure = 12
+		measurements_noiseless = [Sint_noiseless_rms, -1, Afr_noiseless_rms,
+							Sint_noiseless_2rms, -1, Afr_noiseless_2rms,
+							Sint_noiseless_w20, -1, Afr_noiseless_w20,
+							Sint_noiseless_w50, -1, Afr_noiseless_w50]
+
+	measurements = -np.ones([Nspectra + 1, Nmeasure])
+	measurements[0,:] = measurements_noiseless
+
+
+	for ss in range(Nspectra):
+		obs_spectrum = spectra[:, ss]
+
+		Sint_rms, Afr_rms = func.areal_asymmetry(obs_spectrum, width_rms, Vres)
+		Sint_2rms, Afr_2rms = func.areal_asymmetry(obs_spectrum, width_2rms, Vres)
+		Sint_w20, Afr_w20 = func.areal_asymmetry(obs_spectrum, width_20, Vres)
+		Sint_w50, Afr_w50 = func.areal_asymmetry(obs_spectrum, width_50, Vres)
+		
+		if 'PN' in model_code:
+			SN_rms = func.peak_SN(np.nanmax(obs_spectrum), rms)
+			SN_2rms = func.peak_SN(np.nanmax(obs_spectrum), rms)
+			SN_w20 = func.peak_SN(np.nanmax(obs_spectrum), rms)
+			SN_w50 = func.peak_SN(np.nanmax(obs_spectrum), rms)
+		elif 'AA' in model_code:
+			SN_rms = func.integrated_SN(Sint_rms, wrms, rms, Vsm)
+			SN_2rms = func.integrated_SN(Sint_2rms, w2rms, rms, Vsm)
+			SN_w20 = func.integrated_SN(Sint_w20, w20, rms, Vsm)
+			SN_w50 = func.integrated_SN(Sint_w50, w50, rms, Vsm)
+
+		if not obs_peaks:
+			measurements[ss + 1, :] = [Sint_rms, SN_rms, Afr_rms,
+										Sint_2rms, SN_2rms, Afr_2rms,
+										Sint_w20, SN_w20, Afr_w20,
+										Sint_w50, SN_w50, Afr_w50]
+		else:
+
+
+			spec_max = np.nanmax(obs_spectrum)
+			if 'doublehorn' not in model_code:
+				Peaks_obs = [np.nanmax(obs_spectrum) - rms,np.nanmax(obs_spectrum) - rms]
+			else:
+				tol = int(30./Vres)						#select the maximum channel around the known peaks
+				Peaks_obs = [np.nanmax(obs_spectrum[Peaklocs[0] - tol:Peaklocs[0] + tol]) - rms,
+						np.nanmax(obs_spectrum[Peaklocs[1] - tol:Peaklocs[1] + tol]) - rms]
+
+			width_20_obs = func.locate_width(noiseless_spectrum, Peaks_obs, 0.2e0)
+			width_50_obs = func.locate_width(noiseless_spectrum, Peaks_obs, 0.5e0)
+			if all(w > 0 for w in width_20_obs) and all(i == False for i in np.isinf(width_20_obs)):
+				Sint_w20_obs, Afr_w20_obs = func.areal_asymmetry(obs_spectrum, width_20_obs, Vres)
+				w20_obs = (width_20_obs[1] - width_20_obs[0]) * Vres
+				if 'AA' in model_code:
+					SN_w20_obs =  func.integrated_SN(Sint_w20_obs, w20_obs, rms, Vsm)
+				elif 'PN' in model_code:
+					SN_w20_obs = func.peak_SN(np.nanmax(obs_spectrum), rms)
+			else:
+				Afr_w20_obs = -1
+				SN_w20_obs = -1
+			if all(w > 0 for w in width_50_obs) and all(i == False for i in np.isinf(width_50_obs)):
+				Sint_w50_obs, Afr_w50_obs = func.areal_asymmetry(obs_spectrum, width_50_obs, Vres)
+				w50_obs = (width_50_obs[1] - width_50_obs[0]) * Vres
+				if 'AA' in model_code:
+					SN_w50_obs =  func.integrated_SN(Sint_w50_obs, w50_obs, rms, Vsm)
+				elif 'PN' in model_code:
+					SN_w50_obs = func.peak_SN(np.nanmax(obs_spectrum), rms)
+			else:
+				Afr_w50_obs = -1
+				SN_w50_obs = -1
+
+			measurements[ss + 1, :] = [Sint_rms, SN_rms, Afr_rms,
+										Sint_2rms, SN_2rms, Afr_2rms,
+										Sint_w20, SN_w20, Afr_w20,
+										Sint_w50, SN_w50, Afr_w50,
+										Sint_w20_obs, SN_w20_obs, Afr_w20_obs,
+										Sint_w50_obs, SN_w50_obs, Afr_w50_obs]
+
+	filename = f'{model_directory}/measurements/{model_SN}_SN_Afr_measured.dat'
+	header = f'rms {rms:0.5f}\nVsm {Vsm}\n'
+	np.savetxt(filename, measurements, header=header, fmt="%.4e")
+
+##########################################################################################
+#	Different statistics routines
+##########################################################################################
+
+
+def statistics_SN_Afr(model_directory):
+	file_list = glob.glob(f'{model_directory}measurements/*SN_Afr_measured.dat')
+	model_type = 'rms'			#fix to only rms models for now
+	
+
+	if model_type == 'Nch':
+
+		Nch_range = np.array([])
+		Vres_range = np.array([])
+
+		for file in file_list:
+			f = open(file)
+			for line in f:
+				split = line.split(' ')
+				if split[1] == 'rms':
+					rms = float(split[3])
+				if split[1] == 'Vsm':
+					Vsm = float(split[3])
+					break
+			f.close()
+			Vres_range = np.append(Vres_range, Vsm)
+			Nch = file.split('Nch')[-1].split('_')[0]
+			Nch_range = np.append(Nch_range,np.float(Nch))
+		Nch_sort = np.argsort(Nch_range)
+		Nch_range = Nch_range[Nch_sort]
+		Vres_range = Vres_range[Nch_sort]
+		file_list = np.array(file_list)[Nch_sort]
+
+		# Sint_rms = np.array([])
+		# SN_rms = np.array([])
+		# Afr_rms = np.array([])
+		# Sint_2rms = np.array([])
+		# SN_2rms = np.array([])
+		# Afr_2rms = np.array([])
+		# Sint_w20 = np.array([])
+		# SN_w20 = np.array([])
+		# Afr_w20 = np.array([])
+		# Sint_w20_obs = np.array([])
+		# SN_w20_obs = np.array([])
+		# Afr_w20_obs = np.array([])
+		# Sint_w50 = np.array([])
+		# SN_w50 = np.array([])
+		# Afr_w50 = np.array([])
+		# Sint_w50_obs = np.array([])
+		# SN_w50_obs = np.array([])
+		# Afr_w50_obs = np.array([])
+
+		names = ['rms', '2rms', 'w20', 'w20_obs', 'w50', 'w50_obs']
+
+		column_names = ['Nch', 'Vres']
+		formats = {'Nch':'4.2f', 'Vres': '3.4f'}
+
+		dP = 5
+		percentile_values = np.arange(5, 95 + dP, dP)
+		percentiles = np.zeros(len(percentile_values) + 1)
+
+		# names = ['w20', 'w50', 'w20_obs', 'w50_obs']
+		for name in names:
+			column_names.extend([f'avg_SN_{name}'])						
+			formats[f'avg_SN_{name}'] = '4.2f'
+
+			for pp in range(len(percentile_values)):
+				value = int(percentile_values[pp])
+				column_names.extend([f'P{value}_{name}'])
+				formats[f'P{value}_{name}'] = '.5f'
+		
+		Afr_statistics = np.zeros([len(file_list), 2 + len(percentiles) * len(names)])
+		Afr_statistics[:,0] = Nch_range
+		Afr_statistics[:,1] = Vres_range
+
+		for ff in range(len(file_list)):
+			measurements = np.genfromtxt(file_list[ff])
+			measurements = measurements[1::,:]
+			Sint_rms = measurements[:, 0]
+			SN_rms = measurements[:, 1]
+			Afr_rms = measurements[:, 2]
+
+			Sint_2rms = measurements[:, 3]
+			SN_2rms = measurements[:, 4]
+			Afr_2rms = measurements[:, 5]
+			
+			Sint_w20 = measurements[:, 6]
+			SN_w20 = measurements[:, 7]
+			Afr_w20 = measurements[:, 8]
+
+
+			Sint_w20_obs = measurements[:, 9]
+			SN_w20_obs = measurements[:, 10]
+			Afr_w20_obs = measurements[:, 11]
+
+			Sint_w50 = measurements[:, 12]
+			SN_w50 = measurements[:, 13]
+			Afr_w50 = measurements[:, 14]
+			
+			Sint_w50_obs = measurements[:, 15]
+			SN_w50_obs = measurements[:, 16]
+			Afr_w50_obs = measurements[:, 17]
+
+			SN = [SN_rms, SN_2rms, SN_w20, SN_w20_obs, SN_w50, SN_w50_obs]
+			Afr = [Afr_rms, Afr_2rms, Afr_w20, Afr_w20_obs, Afr_w50, Afr_w50_obs]
+
+			for ss in range(len(SN)):
+				percentiles[0] = np.mean(SN[ss])		
+		
+				for pp in range(len(percentile_values)):
+					percentiles[pp + 1] = np.percentile(Afr[ss], percentile_values[pp])
+		
+				Afr_statistics[ff, (ss * len(percentiles) + 2):
+								((ss + 1) * len(percentiles) + 2)] = percentiles
+
+		table = Table(rows = Afr_statistics, names = column_names)
+		stats_filename = f'{args.dir}statistics.dat'
+		table.write(stats_filename, formats = formats, format = 'ascii', overwrite = True)
+
+	else:	
+		test_file = np.genfromtxt(file_list[0])
+		measurements = test_file[1::,:]
+		Nmeasure = len(measurements[0,:]) 
+
+		Sint_rms = np.array([])
+		SN_rms = np.array([])
+		Afr_rms = np.array([])
+		Sint_2rms = np.array([])
+		SN_2rms = np.array([])
+		Afr_2rms = np.array([])
+		Sint_w20 = np.array([])
+		SN_w20 = np.array([])
+		Afr_w20 = np.array([])
+		Sint_w50 = np.array([])
+		SN_w50 = np.array([])
+		Afr_w50 = np.array([])
+
+		if Nmeasure == 18:
+			Sint_w20_obs = np.array([])
+			SN_w20_obs = np.array([])
+			Afr_w20_obs = np.array([])
+			Sint_w50_obs = np.array([])
+			SN_w50_obs = np.array([])
+			Afr_w50_obs = np.array([])
+
+
+		for file in file_list:
+			measurements = np.genfromtxt(file)
+			measurements = measurements[1::,:]
+			Sint_rms = np.append(Sint_rms,measurements[:, 0])
+			SN_rms = np.append(SN_rms,measurements[:, 1])
+			Afr_rms = np.append(Afr_rms,measurements[:, 2])
+
+			Sint_2rms = np.append(Sint_2rms,measurements[:, 3])
+			SN_2rms = np.append(SN_2rms,measurements[:, 4])
+			Afr_2rms = np.append(Afr_2rms,measurements[:, 5])
+			
+			Sint_w20 = np.append(Sint_w20,measurements[:, 6])
+			SN_w20 = np.append(SN_w20,measurements[:, 7])
+			Afr_w20 = np.append(Afr_w20,measurements[:, 8])
+
+			Sint_w50 = np.append(Sint_w50,measurements[:, 9])
+			SN_w50 = np.append(SN_w50,measurements[:, 10])
+			Afr_w50 = np.append(Afr_w50,measurements[:, 11])
+
+			if Nmeasure == 18:
+
+				Sint_w20_obs = np.append(Sint_w20_obs,measurements[:, 12])
+				SN_w20_obs = np.append(SN_w20_obs,measurements[:, 13])
+				Afr_w20_obs = np.append(Afr_w20_obs,measurements[:, 14])
+				
+				Sint_w50_obs = np.append(Sint_w50_obs,measurements[:, 15])
+				SN_w50_obs = np.append(SN_w50_obs,measurements[:, 16])
+				Afr_w50_obs = np.append(Afr_w50_obs,measurements[:, 17])
+
+		SN_bins = np.arange(int(np.nanmax([5, np.nanmin(SN_w20)])), 
+				int(np.nanmax(SN_w20) * 0.1) * 10, 4)
+		dP = 5
+		percentile_values = np.arange(5, 95 + dP, dP)
+		percentiles = np.zeros(len(percentile_values) + 2)
+
+		if Nmeasure == 12:
+			names = ['rms', '2rms', 'w20', 'w50']
+			SN = [SN_rms, SN_2rms, SN_w20, SN_w50]
+			Afr = [Afr_rms, Afr_2rms, Afr_w20, Afr_w50]
+		elif Nmeasure == 18:
+			names = ['rms', '2rms', 'w20', 'w50', 'w20_obs', 'w50_obs']
+			SN = [SN_rms, SN_2rms, SN_w20, SN_w50, SN_w20_obs, SN_w50_obs]
+			Afr = [Afr_rms, Afr_2rms, Afr_w20, Afr_w50, Afr_w20_obs, Afr_w50_obs]
+
+		Afr_statistics = np.zeros([len(SN_bins) - 1, 1 + len(percentiles) * len(SN)])
+		Afr_statistics[:,0] = SN_bins[0:-1]
+
+		column_names = ['SN_bin']
+		# formats = {'SN_bin':'4.2f'}
+
+		for mm in range(len(SN)):
+			SN_vals = SN[mm]
+			Afr_vals = Afr[mm]
+
+			column_names.extend([f'avg_SN_{names[mm]}',
+								f'mode_Afr_{names[mm]}'])
+			# formats[f'avg_SN_{names[mm]}'] = '4.2f'
+			# formats[f'mode_Afr_{names[mm]}'] = '4.2f'
+
+			for pp in range(len(percentile_values)):
+				value = int(percentile_values[pp])
+				column_names.extend([f'P{value}_{names[mm]}'])
+				# formats[f'P{value}_{names[mm]}'] = '.5f'
+
+			for ii in range(len(SN_bins) - 1):
+				SN_low = SN_bins[ii]
+				SN_high = SN_bins[ii + 1]
+
+				inbin_SN = SN_vals[(SN_vals >= SN_low) & (SN_vals < SN_high)]
+				inbin_Afr = Afr_vals[(SN_vals >= SN_low) & (SN_vals < SN_high)]
+
+				if len(inbin_SN) != 0:
+					percentiles[0] = np.mean(inbin_SN)		
+					percentiles[1] = mode(inbin_Afr)[0][0]
+				
+					for pp in range(len(percentile_values)):
+						percentiles[pp + 2] = np.percentile(inbin_Afr,percentile_values[pp])
+				
+					Afr_statistics[ii, (mm * len(percentiles) + 1):
+										((mm + 1) * len(percentiles) + 1)] = percentiles
+
+		table = Table(rows = Afr_statistics, names = column_names)
+		stats_filename = f'{model_directory}statistics/SN_Afr_statistics.fits'
+		table.write(stats_filename, overwrite = True)
+		
 
 ##########################################################################################
 #	Argument parsing for using functions
@@ -1164,20 +1197,22 @@ generation_parser.add_argument('-width','--width', action = 'store_true',
 					help = 'Flag for changing width models', default = False)
 generation_parser.add_argument('-Nch','--Nch', action = 'store_true',
 					help = 'Flag for changing channel width models', default = False)
+generation_parser.add_argument('-dir', '--basedir', type = str,
+					help = 'Base directory for models, default working dir', default = '.')
 generation_parser.add_argument('-N', '--Nmodels', type = int, nargs = 1,
-					help = 'Number of spectra in each model', default = [100])
-generation_parser.add_argument('-T', '--TH', type = float, nargs = 1,
-					help = 'Width for an input top-hat spectrum', default = [0])
-generation_parser.add_argument('-G', '--GS', type = float, nargs = 2,
-					help = 'Sigma for an input Gaussian', default = [0,0])
+					help = 'Number of spectra in each model', default = 100)
+generation_parser.add_argument('-T', '--TH', action = 'store_true',
+					help = 'Flag for a Tophat spectrum, default model width is 300', default = False)
+generation_parser.add_argument('-G', '--GS',action = 'store_true',
+					help = 'Flag for a Gaussian spectrum, default model sigma is 90', default = False)
 generation_parser.add_argument('-i', '--incl', type = float,
 					help = 'Galaxy inclination', default = 50.e0 )
 generation_parser.add_argument('-Vs', '--Vsm', type = float,
 					help = 'Velocity smoothing', default = 10.e0 )
 generation_parser.add_argument('-Vd', '--Vdisp', type = float,
-					help = 'Velocity dispersion', default = 0.e0 )
+					help = 'Velocity dispersion', default = 10.e0 )
 generation_parser.add_argument('-H', '--HI', nargs = '+', type = float,
-					help = 'HI distribution parameters', default = [1.e0, 1.65e0])
+					help = 'HI model parameters', default = [1.e0, 1.65e0])
 generation_parser.add_argument('-R', '--RC', nargs = '+', type = float, 
 					help = 'Rotation curve parameters', default = [200.e0, 0.164e0, 0.002e0])
 generation_parser.add_argument('-SN', '--SN_range', nargs = 3, type = float,
@@ -1228,7 +1263,7 @@ density_plot_parser.add_argument('-S', '--save', action = 'store_true',
 density_plot_parser.set_defaults(func = density_plot)
 
 
-global_parser.add_argument('-v', '--version', action = 'version', version = '1.1.0')
+global_parser.add_argument('-v', '--version', action = 'version', version = '2.0.0')
 
 def main():
 	args = global_parser.parse_args()
