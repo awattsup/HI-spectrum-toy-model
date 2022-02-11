@@ -14,16 +14,17 @@ from scipy.special import erf
 #### global variables
 badflag = -123456						#flag for pixels not covered by model
 
-default_params = {'dim':1000, 'incl':60, 'MHI':1.e9, 'dist':50,
-				'HImod':'FE', 'HIparams':[1,2.35],
+#default symmetric
+default_params = {'dim':2000, 'incl':60, 'MHI':1.e9, 'dist':50,
+				'HImod':'FE', 'HIparams':[1,1.65],
 				'RCparams':[200,0.164,0.002], 'Vdisp':10,
 				'Vlim':400, 'Vres':2, 'Vsm':10, 'RMS':0}
-
+# #default asymmetric distribution
 # default_params = {'dim':1000, 'incl':60, 'MHI':1.e9, 'dist':50,
 # 				'HImod':'FE', 'HIparams':[[1,1],[2.35,1.35]],
 # 				'RCparams':[200,0.164,0.002], 'Vdisp':7,
 # 				'Vlim':400, 'Vres':5, 'Vsm':10, 'RMS':0}
-
+#default asymmetric kinematics
 # default_params = {'dim':1000, 'incl':60, 'MHI':1.e9, 'dist':50,
 # 				'HImod':'FE', 'HIparams':[1,2.35],
 # 				'RCparams':[[200,150],[0.164,0.164],[0.002,0.002]], 'Vdisp':7,
@@ -63,6 +64,10 @@ def mock_global_HI_spectrum(params=default_params):
 	if params['Vsm'] != 0:
 		spectrum = smooth_spectrum(spectrum, params)
 
+
+	# plt.plot(vel_bins,spectrum)
+	# plt.show()
+
 	return [mom0, mom1, mom2], np.array([vel_bins,spectrum]).T
 
 #### creation functions
@@ -93,22 +98,21 @@ def create_arrays(params):
 	costheta = np.zeros([dim, dim])
 	incl = 1.e0 / np.cos(params['incl'] * np.pi / 180.e0)						#inclination correction goes as 1/cos
 	Ropt = 4.e0 / dim														#define image to cover 2 optical radii						
-	for yy in range(dim):
-		for xx in range(dim):
-			xcoord = (xx + 1.e0) - 0.5e0 * (dim + 1)
-			ycoord = (yy + 1.e0) - 0.5e0 * (dim + 1)
-			rad = np.sqrt( xcoord * xcoord + (ycoord * ycoord * incl * incl) )	#y coordinate is projected by inclination
-			if rad <= 0.5e0 * (dim + 1.e0):
-				radius[yy, xx] = rad * Ropt
-				if xcoord != 0:
-					costheta[yy, xx] = (np.sign(xcoord) *
+	
+	xcoords = np.arange(1,dim+1) - 0.5*(dim+1)
+	ycoords = np.arange(1,dim+1) - 0.5*(dim+1)
+
+	xcoord, ycoord = np.meshgrid(xcoords,ycoords)
+
+	radius = np.sqrt(xcoord**2.e0 + (ycoord*incl)**2.e0)
+	costheta = (np.sign(xcoord) *
 						np.cos(np.arctan((ycoord * incl) / xcoord)) )
-				else:
-					costheta[yy, xx] = (np.sign(xcoord) *
-						np.cos(np.sign(ycoord) * np.pi * 0.5e0) )
-			else:
-				radius[yy, xx] = badflag							#no data outside galaxy radius
-				costheta[yy, xx] = badflag							#removed NaNs to speed up
+	costheta[xcoord == 0] = (np.sign(xcoord[xcoord == 0]) *
+						np.cos(np.sign(ycoord[xcoord == 0]) * np.pi * 0.5e0) )
+
+	costheta[radius > 0.5e0*(dim + 1)] = badflag			#no data outside galaxy radius
+	radius[radius > 0.5e0*(dim + 1)] = badflag				#removed NaNs to speed up
+	radius[radius != badflag] *= Ropt				
 	
 	Ropt = dim / 4.e0 												#return Ropt in Npixels
 	return radius, costheta, Ropt
@@ -139,7 +143,7 @@ def create_mom0(radius, costheta, params):
 		for pp in range(len(params['HIparams'])):		#interpolate azimuthally
 			p_rec = params['HIparams'][pp][0]
 			p_app = params['HIparams'][pp][1]
-			print(p_rec,p_app)
+			# print(p_rec,p_app)
 			p = p_app * (1.e0 + (((p_rec - p_app)/p_app) * 0.5e0* (costheta + 1.e0)))
 			HIparam_arrays.append(p)
 	else:												#symmetric case
@@ -509,7 +513,7 @@ def add_noise(spectrum, params):
 	obs_spectrum = spectrum + noise_arr
 	return obs_spectrum
 
-def smooth_spectrum(vel_bins, spectrum, params):
+def smooth_spectrum(spectrum, params):
 	"""
 	Boxcar smooth observed spectrum 
 
