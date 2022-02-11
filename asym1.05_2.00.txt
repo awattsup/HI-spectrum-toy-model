@@ -1,0 +1,52 @@
+python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.9 1.65 1.45 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.8 1.65 1.35 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.75 1.65 1.2 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.7 1.65 1.1 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.65 1.65 1.03 -dir /media/data/models/HI_spectrum_toy_model/ 
+
+python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.6 1.65 0.98 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.55 1.65 0.945 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.5 1.65 0.92 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.48 1.65 0.865 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.45 1.65 0.825 -dir /media/data/models/HI_spectrum_toy_model/
+
+python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.42 1.65 0.797 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.4 1.65 0.76 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.4 1.65 0.708 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.37 1.65 0.692 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.36 1.65 0.658 -dir /media/data/models/HI_spectrum_toy_model/
+
+python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.35 1.65 0.628 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.34 1.65 0.6 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.33 1.65 0.575 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.31 1.65 0.558 -dir /media/data/models/HI_spectrum_toy_model/ &
+wait; python model_asymmetry_parameterspace.py generate -rms -N 5000 -SN 5 100 1  -HI 1.0 0.3 1.65 0.54 -dir /media/data/models/HI_spectrum_toy_model/
+
+
+
+
+
+
+python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.05_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.10_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.15_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.20_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.25_rms/ 
+
+python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.30_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.35_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.40_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.45_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.50_rms/
+
+python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.55_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.60_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.65_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.70_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.75_rms/
+
+python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.80_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.85_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.90_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.95_rms/ &
+wait; python model_asymmetry_parameterspace.py measure /media/data/models/HI_spectrum_toy_model/models/doublehornAAVsm10.0_Afr1.20_rms/

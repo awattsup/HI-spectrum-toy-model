@@ -7,6 +7,185 @@ from matplotlib.lines import Line2D
 
 
 
+def model_construction():
+
+
+	params = {'dim':1000, 'incl':45, 'MHI':1.e9, 'dist':50,
+				'HImod':'FE', 'HIparams':[1,1.65],
+				'RCparams':[200,0.164,0.002], 'Vdisp':10,
+				'Vlim':400, 'Vres':2, 'Vsm':10, 'RMS':0}
+
+	default_model = mock_global_HI_spectrum(params)
+
+	mom_maps = default_model[0]
+	spec = default_model[1]
+
+	fig = plt.figure(figsize = (15,5.5))
+	gs  = gridspec.GridSpec(1,3, left = 0.06, right = 0.995, top=0.99, bottom = 0.08,wspace=0.15)
+
+	mom0 = fig.add_subplot(gs[0,0])
+	sideview = fig.add_subplot(gs[0,1])
+	spec_ax = fig.add_subplot(gs[0,2])
+
+	cb_ax1 = mom0.inset_axes([0.025,0.95,0.95,0.05])
+
+
+	x0 = 500
+	y0 = 500
+
+	phi = np.linspace(0,2*np.pi,1000)
+	R = 500
+	incl = 45
+	xx = R * np.cos(phi) + x0
+	yy = R * np.sin(phi) 
+	zz = np.zeros(len(phi))
+
+	xx_proj = xx
+	yy_proj = yy*np.cos(incl * np.pi/180.) + y0
+
+	zz_proj = yy*np.sin(incl*np.pi/180)  + y0
+
+
+	R_obs = 300
+	phi_obs = 45
+
+	xx_obs = R_obs * np.cos(phi_obs*np.pi/180) + x0
+	yy_obs = R_obs * np.sin(phi_obs*np.pi/180) 
+	zz_obs = 0
+
+	xx_obs_proj = xx_obs
+	yy_obs_proj = yy_obs*np.cos(incl * np.pi/180.) + y0
+
+	zz_obs_proj = yy_obs*np.sin(incl*np.pi/180)  + y0
+
+	img = mom0.pcolormesh(np.linspace(0,1000,1000),np.linspace(0,1000,1000),np.log10(mom_maps[0]),cmap='Blues',alpha=0.5,zorder=-10)
+
+
+	mom0.plot([x0,xx_obs_proj],[y0,yy_obs_proj],color='Orange',zorder=-1)
+	mom0.text(x0-60,y0-50,'($x_0$,$y_0$)',color='Orange',fontsize=16)
+	mom0.text(x0+100,y0+20,'$\phi$',color='Orange',fontsize=16)
+	mom0.text(x0+55,y0+70,'R',color='Orange',fontsize=16,rotation=40)
+
+	mom0.plot(x0+180*np.cos(np.arange(0,34,0.01)*np.pi/180),
+				y0+180*np.sin(np.arange(0,34,0.01)*np.pi/180),
+					color='Orange',lw=1)
+
+
+	mom0.text(xx_obs_proj-180,yy_obs_proj-15,"($x'$,$y'$)",color='Orange',fontsize=16)
+	mom0.text(xx_obs_proj+40,yy_obs_proj-15,"M$_{HI}$",color='Red',fontsize=16)
+	# mom0.fill_between([xx_obs_proj-25,xx_obs_proj+25],[yy_obs_proj-25],[yy_obs_proj+25],color='Red',alpha=0.5)
+	mom0.fill([xx_obs_proj-35,xx_obs_proj-28,xx_obs_proj+35,xx_obs_proj+28,xx_obs_proj-35], 
+			[yy_obs_proj-35,yy_obs_proj+28,yy_obs_proj+35,yy_obs_proj-28,yy_obs_proj-35],
+						color='Red',alpha=0.7)
+
+	mom0.arrow(xx_obs_proj,yy_obs_proj,-120,120,color='Black',width=3,head_width=20)
+	mom0.text(xx_obs_proj-130,yy_obs_proj+160,"V$_c$",color='Black',fontsize=16)
+
+	mom0.arrow(xx_obs_proj,yy_obs_proj,0,120,color='Black',width=3,head_width=20)
+	mom0.text(xx_obs_proj-10,yy_obs_proj+170,"V$_c$cos($\phi$)",color='Black',fontsize=16)
+
+
+	ch_1 = fig.colorbar(img,cax=cb_ax1,orientation='horizontal')
+	cb_ax1.tick_params(direction='in',labelsize=14)
+	cb_ax1.set_title('log M$_{\odot}$ pix$^{-1}$',pad=-8,fontsize=18)
+
+
+	sideview.plot(zz_proj,yy_proj,color='Blue',zorder=-5,lw=2)
+	sideview.text(x0+20,y0+50,'$i$',color='Black',fontsize=18)
+	
+	sideview.plot(x0+180*np.cos(np.arange(45,90,0.01)*np.pi/180),
+					y0+180*np.sin(np.arange(45,90,0.01)*np.pi/180),
+					color='Black',lw=1)
+
+
+	sideview.plot([x0,zz_obs_proj],[y0,yy_obs_proj],color='Orange',lw=2)
+	sideview.arrow(zz_obs_proj,yy_obs_proj,120,120,color='Black',width=3,head_width=20)
+	sideview.text(zz_obs_proj+120,yy_obs_proj+70,"V$_c$cos($\phi$)",color='Black',fontsize=16)
+
+	sideview.arrow(zz_obs_proj,yy_obs_proj,120,0,color='Black',width=3,head_width=20)
+	sideview.text(zz_obs_proj,yy_obs_proj-50,"V$_{los}$=",
+						color='Black',fontsize=16)
+	sideview.text(zz_obs_proj,yy_obs_proj-100,"V$_c$cos($\phi$)sin($i$)",
+						color='Black',fontsize=16)
+
+	
+
+	pix_spec = 100 * Gaussian_PDF(vel = spec[:,0], mu = 100, 
+											sigma = 10)
+
+	spec_ax.plot(spec[:,0],pix_spec,color='Red')
+	spec_ax.fill_between(spec[:,0],pix_spec,color='Red',alpha=0.5)
+	spec_ax.text(30,0.6*np.max(pix_spec),'M$_{HI}$',color='Red',fontsize=16)
+
+
+	spec_ax.plot(spec[:,0],spec[:,1],color='Black',lw=2)
+	
+	spec_ax.plot([100,100],[spec_ax.get_ylim()[0],1.2*np.max(pix_spec)],color='Black',lw=1,ls='--')
+	spec_ax.text(90,1.02*np.max(pix_spec),'V$_{los}$',color='Black',fontsize=16)
+
+	spec_ax.plot([100,100],[spec_ax.get_ylim()[0],1.2*np.max(pix_spec)],color='Black',lw=1,ls='--')
+
+	spec_ax.errorbar([100], [0.4*np.max(pix_spec)], xerr=[15],
+				capsize=4,ecolor='Black',capthick=2,lw=2)
+	spec_ax.text(40,0.4*np.max(pix_spec),'$\sigma_{D}$',color='Black',fontsize=16)
+
+	mom0.set_xlim([0,1000])
+	mom0.set_ylim([0,1000])
+
+	sideview.set_xlim([0,1000])
+	sideview.set_ylim([0,1000])
+
+	spec_ax.set_xlim([-300,300])
+
+	mom0.set_xticks([0,500,1000])
+	mom0.set_xticklabels(['0','0.5','1'])
+	mom0.set_yticks([0,500,1000])
+	mom0.set_yticklabels(['0','0.5','1'])
+
+	sideview.set_xticks([0,500,1000])
+	sideview.set_xticklabels(['0','0.5','1'])
+	sideview.set_yticks([0,500,1000])
+	sideview.set_yticklabels(['0','0.5','1'])
+
+
+
+	mom0.set_xlabel('x [N$_{pix}$]',fontsize=20)
+	mom0.set_ylabel('y [N$_{pix}$]',fontsize=20)
+	sideview.set_xlabel('side-on projection',fontsize=20)
+	# sideview.set_ylabel('y [N$_{pix}$]',fontsize=20)
+
+
+	spec_ax.set_xlabel('Line-of-sight velocity [km s$^{-1}$]',fontsize=20)
+	spec_ax.set_ylabel('Flux density [mJy]',fontsize=20,labelpad=-5)
+
+
+
+
+	mom0.tick_params(which='both',axis='both',direction='in',labelsize=18)
+	sideview.tick_params(which='both',axis='both',direction='in',labelsize=18)
+	spec_ax.tick_params(which='both',axis='both',direction='in',labelsize=18)
+	sideview.tick_params(which='both',axis='x',direction='in',labelsize=0)
+
+	mom0.set_aspect('equal')
+	sideview.set_aspect('equal')
+	spec_ax.set_aspect(np.diff(spec_ax.get_xlim()) / np.diff(spec_ax.get_ylim()))
+
+	mom0.plot(mom0.get_xlim(),[y0,y0],color='Grey',ls='--',lw=1,zorder=-5)
+	mom0.plot([x0,x0],mom0.get_ylim(),color='Grey',ls='--',lw=1,zorder=-5)
+	sideview.plot(sideview.get_xlim(),[y0,y0],color='Grey',ls='--',lw=1,zorder=-5)
+	sideview.plot([x0,x0],sideview.get_ylim(),color='Grey',ls='--',lw=1,zorder=-5)
+
+
+
+	plt.show()
+	fig.savefig('/home/awatts/programs/HI-spectrum-toy-model/figure_codes/figures/model_schematic.png')
+
+
+
+
+
+
+
 
 def vary_model_parameters_plot():
 	params = {'dim':500, 'incl':45, 'MHI':1.e9, 'dist':150,
@@ -84,7 +263,7 @@ def vary_model_parameters_plot():
 
 
 	for mm in [spec_row0,spec_row1,spec_row2,spec_row3]:
-		mm.set_ylabel('Flux density',fontsize=16,labelpad=0)
+		mm.set_ylabel('Flux density [mJy]',fontsize=16,labelpad=0)
 	spec_row3.set_xlabel('Velocity [km s$^{-1}$]',fontsize=16,labelpad=-1)
 
 
@@ -340,7 +519,7 @@ def vary_model_parameters_plot():
 	# for mm in [spec_row0,spec_row1,spec_row2,spec_row3]:
 	# 	mm.set_aspect(np.abs(np.diff(mm.get_xlim()))/np.abs(np.diff(mm.get_ylim())))
 	# plt.show()
-	fig.savefig('./figures/vary_model_parameters.png')
+	fig.savefig('./figure_codes/figures/vary_model_parameters.png')
 
 def asym_model_parameters_plot():
 	params = {'dim':500, 'incl':45, 'MHI':1.e9, 'dist':150,
@@ -423,7 +602,7 @@ def asym_model_parameters_plot():
 	sigma_ax.set_yticks([3.5,4,4.5])
 
 	for mm in [spec_row1,spec_row2]:
-		mm.set_ylabel('Flux density',fontsize=16,labelpad=0)
+		mm.set_ylabel('Flux density [mJy]',fontsize=16,labelpad=0)
 	spec_row2.set_xlabel('Velocity [km s$^{-1}$]',fontsize=16,labelpad=-4)
 
 
@@ -612,7 +791,7 @@ def asym_model_parameters_plot():
 	# for mm in [spec_row0,spec_row1,spec_row2,spec_row3]:
 	# 	mm.set_aspect(np.abs(np.diff(mm.get_xlim()))/np.abs(np.diff(mm.get_ylim())))
 	# plt.show()
-	fig.savefig('./figures/asym_model_parameters.png')
+	fig.savefig('./figure_codes/figures/asym_model_parameters.png')
 
 
 
@@ -738,7 +917,7 @@ def TNG100_paper_plot():
 
 		axes1.set_ylabel('$\Sigma_{HI}$ [M$_{\odot}$ pix$^{-1}$]',fontsize=27)
 		axes2.set_ylabel('Circular Velocity [km s$^{-1}$]',fontsize=27)
-		axes3.set_ylabel('Flux Density [Jy]',fontsize=27)
+		axes3.set_ylabel('Flux Density [mJy]',fontsize=27)
 
 		# axes1.set_yticks([0.5,1,2,5,10])
 		# axes1.set_yticklabels([0.5,1,2,5,10])
@@ -760,7 +939,7 @@ def TNG100_paper_plot():
 
 	ax1.legend(leg,labels=('Receding','Approaching'),fontsize=25,loc=4)		
 
-	fig.savefig('./figures/Afr_demo_v2.png')
+	fig.savefig('./figure_codes/figures/Afr_demo_v2.png')
 
 	# plt.show()
 	# exit()
@@ -776,7 +955,8 @@ def TNG100_paper_plot():
 
 if __name__ == '__main__':
 	# TNG100_paper_plot()
-	vary_model_parameters_plot()
+	model_construction()
+	# vary_model_parameters_plot()
 	# asym_model_parameters_plot()
 
 

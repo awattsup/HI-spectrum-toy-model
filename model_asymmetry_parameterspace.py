@@ -96,9 +96,15 @@ def generate(args):
 		else:
 			base = 'doublehorn'
 			params['HImod'] = 'FE'
-			params['HIparams'] = args.HI
-			params['RCparams'] = args.RC
-			params['Vdisp'] = args.Vdisp,
+			if len(args.HI) == 4:
+				params['HIparams'] = [[args.HI[0],args.HI[1]],[args.HI[2],args.HI[3]]]
+			else:
+				params['HIparams'] = args.HI
+			if len(args.RC) == 6:
+				params['HIparams'] = [[args.RC[0],args.RC[1]],[args.RC[2],args.RC[3]],[args.RC[4],args.RC[5]]]
+			else:
+				params['RCparams'] = args.RC
+			params['Vdisp'] = args.Vdisp
 
 
 		if args.width:
@@ -371,7 +377,8 @@ def generate(args):
 			width = (width_locs[1] - width_locs[0]) * params['Vres']
 			Sint_noiseless, Afr_noiseless = func.areal_asymmetry(noiseless_spectrum, width_locs, params['Vres'])
 
-			print('Noiseless Afr = {Afr_noiseless:.2f}')
+			print(f'Noiseless Afr = {Afr_noiseless:.3f}')
+			# exit()
 
 			SN_range = np.arange(args.SN_range[0], args.SN_range[1] + args.SN_range[2], args.SN_range[2])
 			if args.PN:
@@ -768,21 +775,98 @@ def density_plot(args):
 
 def get_SN_Afr(SN, num = None, model_type = 'doublehorn',Afr = 1):
 
-	model_directory = '/media/data/models/HI_spectrum_toy_model/models/{model_type}AAVsm10.0_Afr{Afr:.2f}_rms/measurements/'
+	if isinstance(SN,float) or isinstance(SN,int):
 
-	measurements_file = f'{model_directory}{int(round(SN))}_SN_Afr_measured.dat'
+		model_directory = '/media/data/models/HI_spectrum_toy_model/models/{model_type}AAVsm10.0_Afr{Afr:.2f}_rms/measurements/'
 
-	data = np.genfromtxt(measurements_file)
-	measurements = data[1::,:]
-	Nrows = len(measurements)
+		measurements_file = f'{model_directory}{int(round(SN))}_SN_Afr_measured.dat'
 
-	if num == None:
-		num = rng.integers(Nrows)
+		data = np.genfromtxt(measurements_file)
+		measurements = data[1::,:]
+		Nrows = len(measurements)
 
-	SN = measurements[num,7]	
-	Afr = measurements[num,8]	
+		if num == None:
+			num = rng.integers(Nrows)
 
-	return SN, Afr
+		SN_measured = measurements[num,7]	
+		Afr_measured = measurements[num,8]
+
+		return SN_measured, Afr_measured
+	else:
+		SN_Afr_measured = np.zeros([len(SN),2])
+		for ii in range(len(SN)):
+			model_directory = f'/media/data/models/HI_spectrum_toy_model/models/{model_type}AAVsm10.0_Afr{Afr[ii]:.2f}_rms/measurements/'
+
+			measurements_file = f'{model_directory}SN{int(round(SN[ii]))}_SN_Afr_measured.dat'
+
+			data = np.genfromtxt(measurements_file)
+			measurements = data[1::,:]
+			Nrows = len(measurements)
+
+			if num == None:
+				numflag = 1
+				num = rng.integers(Nrows)
+
+			SN_Afr_measured[ii,0] = measurements[num,7]	
+			SN_Afr_measured[ii,1] = measurements[num,8]
+			if numflag == 1:
+				num = None
+
+		return SN_Afr_measured
+
+
+
+def get_spectrum(SN, num = None, model_type = 'doublehorn',Afr = 1):
+
+	if isinstance(SN,float) or isinstance(SN,int):
+
+		model_directory = f'/media/data/models/HI_spectrum_toy_model/models/{model_type}AAVsm10.0_Afr{Afr:.2f}_rms/spectra/'
+
+		spectra_file = f'{model_directory}SN{int(round(SN))}_spectra.dat'
+
+		data = np.genfromtxt(spectra_file)
+		vel_bins = data[:,0]
+		spectra = data[:,1::]
+
+		if num == None:
+			Nspec = len(spectra)-1
+			num = rng.integers(Nspec)
+
+		spectrum = spectra[:,num+1]
+
+		spec = np.array([vel_bins,spectrum]).T
+
+		return spec
+	else:
+		spec = []
+		for ii in range(len(SN)):
+			model_directory = f'/media/data/models/HI_spectrum_toy_model/models/{model_type}AAVsm10.0_Afr{Afr[ii]:.2f}_rms/spectra/'
+
+			spectra_file = f'{model_directory}SN{int(round(SN[ii]))}_spectra.dat'
+
+			data = np.genfromtxt(spectra_file)
+			vel_bins = data[:,0]
+			spectra = data[:,1::]
+			if ii == 0:
+				spec.append(vel_bins)
+
+			if num == None:
+				Nspec = len(spectra)-1
+				numflag = 1
+				num = rng.integers(Nspec)
+
+			spectrum = spectra[:,num+1]
+			spec.append(spectrum)
+
+			if numflag == 1:
+				num = None
+
+		spec = np.array(spec).T
+
+		return spec
+
+
+
 
 ##########################################################################################
 #	Model generation functions
@@ -1211,9 +1295,9 @@ generation_parser.add_argument('-Vs', '--Vsm', type = float,
 					help = 'Velocity smoothing', default = 10.e0 )
 generation_parser.add_argument('-Vd', '--Vdisp', type = float,
 					help = 'Velocity dispersion', default = 10.e0 )
-generation_parser.add_argument('-H', '--HI', nargs = '+', type = float,
+generation_parser.add_argument('-HI', '--HI', nargs = '+', type = float,
 					help = 'HI model parameters', default = [1.e0, 1.65e0])
-generation_parser.add_argument('-R', '--RC', nargs = '+', type = float, 
+generation_parser.add_argument('-RC', '--RC', nargs = '+', type = float, 
 					help = 'Rotation curve parameters', default = [200.e0, 0.164e0, 0.002e0])
 generation_parser.add_argument('-SN', '--SN_range', nargs = 3, type = float,
 					help = 'S/N max, min & step', default = [10, 50, 5])
